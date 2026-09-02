@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from btc_inventory_quant.config.schema import AppConfig, RunMode
+from btc_inventory_quant.data.funding_features import attach_funding_features, rows_to_events
 from btc_inventory_quant.data.market_data import klines_frame
 from btc_inventory_quant.domain.inverse_contract import ZERO, ContractSpec, OrderSide
 from btc_inventory_quant.domain.portfolio import Portfolio
@@ -51,7 +52,11 @@ from btc_inventory_quant.monitoring.metrics import MetricsRegistry
 from btc_inventory_quant.risk.guards import GuardResult, Guards, critical_failures, failures
 from btc_inventory_quant.risk.kill_switch import KillSwitch
 from btc_inventory_quant.storage.database import Database
-from btc_inventory_quant.strategy.base import Strategy
+from btc_inventory_quant.strategy.base import (
+    Strategy,
+    strategy_funding_lookbacks,
+    strategy_requires_funding,
+)
 
 log = get_logger(__name__)
 STATE_PORTFOLIO = "portfolio"
@@ -499,7 +504,22 @@ class Trader:
             raise ExchangeUnavailable(
                 f"only {len(frame)} completed candles (need {self.strategy.warmup_bars + 1})"
             )
+        if strategy_requires_funding(self.strategy):
+            frame = self._attach_funding(frame)
         return frame
+
+    def _attach_funding(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Same causal funding features the backtest uses, built from the exchange history."""
+        lookbacks = strategy_funding_lookbacks(self.strategy) or (21,)
+        needed = max(lookbacks)
+        start_ms = int((frame.index[0] - pd.Timedelta(days=needed // 3 + 3)).timestamp() * 1000)
+        rows = self.exchange.funding_rate_history(self.symbol, start_ms=start_ms, limit=1000)
+        events = rows_to_events(rows)
+        if not events:
+            raise ExchangeUnavailable(
+                "funding history is empty; the funding guard cannot be evaluated"
+            )
+        return attach_funding_features(frame, events, lookbacks)
 
     def _mark_price(self) -> Any:
         return self.exchange.premium_index(self.symbol)

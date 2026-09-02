@@ -36,6 +36,15 @@ class Strategy(Protocol):
     def compute(self, frame: pd.DataFrame) -> pd.DataFrame: ...
 
 
+def strategy_requires_funding(strategy: object) -> bool:
+    """True when the strategy reads funding features (the engine/trader then attach them)."""
+    return bool(getattr(strategy, "requires_funding", False))
+
+
+def strategy_funding_lookbacks(strategy: object) -> tuple[int, ...]:
+    return tuple(getattr(strategy, "funding_lookbacks", ()))
+
+
 REQUIRED_COLUMNS = ("raw_target", "regime")
 
 

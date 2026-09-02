@@ -158,6 +158,16 @@
 | 비현실적 체결가 | 다음 시가 + 슬리피지 + Taker |
 | 반올림 오차 | 정수 계약 내림, 테스트 |
 
+## V2 연구 (사후 추가, 2026-09-02)
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| 펀딩 피처 인과성(look-ahead 금지) | ✅ | `data/funding_features.py`, `tests/unit/test_funding_features.py` (14종, 미래 데이터 무영향·다음날 정산 누출 없음) |
+| 라이브/백테스트 신호 동등성 | ✅ | `tests/simulation/test_trader_simulation.py::test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest` (rtol 1e-12) |
+| 원래 원칙 불변(롱 금지·85% 캡·reduce-only·20%p/10%p) | ✅ | 가드는 `raw_target` 을 **감소**만 시킴, 리스크·실행 계층 무변경 — `docs/strategy_v2.md` §1 |
+| 사전 등록 평가 규칙 준수(OOS 되돌려 맞추기 금지) | ✅ | `docs/strategy_v2.md` §5, 채택 근거에서 전체 기간 성적 배제 |
+| 판정: 펀딩 가드 | 🟡 기본 OFF | −1bp FAIL→PASS 복구는 성공, 그러나 실이득의 0.2%만 펀딩 귀속 → 방향성 잡음으로 판정 |
+| 판정: 동적 레짐 V1 | ❌ 기각 | 정적 `fixed_50` 이 전체·OOS·워크포워드·거래수 모든 축에서 우위 — `docs/strategy_v2.md` §6.1 |
+
 ## 남은 미검증·한계 (요약)
 1. 데모/실서버 실접속 스모크 테스트 미실행(개발 환경 네트워크 제약).
 2. 펀딩 명목가치 공식 COIN-M 원문 PARTIAL → 실측 역검증 필요.
@@ -165,3 +175,4 @@
 4. Docker 이미지 빌드 미검증.
 5. 현재 VIP0 수수료율·BNB 할인 미확인(런타임 조회).
 6. WebSocket 은 로컬 서버 테스트로만 검증(실서버 미검증).
+7. V2 결과는 2020-08-11~2026-09-01 스냅샷 1개(2,213 일봉)에 기반 — 단일 시장 사이클 표본.

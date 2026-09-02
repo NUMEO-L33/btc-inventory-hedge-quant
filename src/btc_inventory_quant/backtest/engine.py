@@ -28,12 +28,17 @@ from btc_inventory_quant.backtest.execution_model import ExecutionModel
 from btc_inventory_quant.backtest.funding_model import FundingModel
 from btc_inventory_quant.config.schema import CostModelConfig, RiskLimits
 from btc_inventory_quant.data.funding_data import FundingCalendar
+from btc_inventory_quant.data.funding_features import attach_funding_features
 from btc_inventory_quant.data.market_data import DailyDataset
 from btc_inventory_quant.domain.inverse_contract import ZERO, ContractSpec, OrderSide
 from btc_inventory_quant.domain.portfolio import Portfolio
 from btc_inventory_quant.execution.rebalancer import Rebalancer
 from btc_inventory_quant.risk.limits import RiskLimitViolation, validate_order_against_position
-from btc_inventory_quant.strategy.base import Strategy
+from btc_inventory_quant.strategy.base import (
+    Strategy,
+    strategy_funding_lookbacks,
+    strategy_requires_funding,
+)
 
 
 class BacktestError(RuntimeError):
@@ -106,6 +111,9 @@ class BacktestEngine:
         frame = self.dataset.frame
         if self.end is not None:
             frame = frame[frame.index <= pd.Timestamp(self.end)]
+        if strategy_requires_funding(self.strategy):
+            lookbacks = strategy_funding_lookbacks(self.strategy) or (21,)
+            frame = attach_funding_features(frame, self.funding_calendar.events, lookbacks)
         signals = self.strategy.compute(frame)
         self._signals = signals
         j0 = self._first_execution_index(frame, signals)

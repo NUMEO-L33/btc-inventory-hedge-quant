@@ -87,7 +87,7 @@ class Ema200SimpleStrategy:
         return out
 
 
-def build_strategy(cfg: StrategyConfig) -> Strategy:
+def build_base_strategy(cfg: StrategyConfig) -> Strategy:
     match cfg.name:
         case StrategyName.REGIME_HEDGE_V1:
             return RegimeHedgeV1(cfg.regime_hedge)
@@ -98,3 +98,13 @@ def build_strategy(cfg: StrategyConfig) -> Strategy:
         case StrategyName.EMA200_SIMPLE:
             return Ema200SimpleStrategy(cfg.ema200_simple)
     raise ValueError(f"unknown strategy {cfg.name}")  # pragma: no cover
+
+
+def build_strategy(cfg: StrategyConfig) -> Strategy:
+    """Base strategy, optionally wrapped in the funding guard (V2 step 1)."""
+    from btc_inventory_quant.strategy.funding_guard import FundingGuardStrategy
+
+    base = build_base_strategy(cfg)
+    if cfg.funding_guard.enabled:
+        return FundingGuardStrategy(base, cfg.funding_guard)
+    return base

@@ -4,6 +4,8 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
 > **현재 상태(2026-09-02)**: 백테스트·과최적화 검증·Shadow·주문 관리·장애 복구·Live 게이트까지 구현 완료(MVP). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. 검증 결과 **V1 전략의 타이밍 알파는 확인되지 않았습니다** — 자세한 내용은 [docs/strategy_spec.md](docs/strategy_spec.md) §5 와 `reports/research_v1/research_report.md` 를 보세요.
+>
+> **V2 연구 결과(2026-09-02)**: 펀딩 가드는 역펀딩 −1bp/8h 의 FAIL 을 PASS 로 복구하지만, 실제 과거 데이터의 개선분은 펀딩 절감이 아닌 방향성 잡음이라 **기본 비활성화**입니다. 같은 실험에서 **동적 레짐(V1)이 정적 고정 헤지보다 모든 축에서 열등함이 확인되어 기각**되었습니다 — [docs/strategy_v2.md](docs/strategy_v2.md).
 
 ## 1. 핵심 결과 한눈에 (2021-03-10 → 2026-09-01, 실데이터)
 
@@ -92,6 +94,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 계층·데이터 흐름·모드 |
 | [docs/strategy_spec.md](docs/strategy_spec.md) | V1 규칙·파라미터·검증 결과·정직한 결론 |
+| [docs/strategy_v2.md](docs/strategy_v2.md) | V2 펀딩 가드 연구 — 2×2 실험, 손익 귀속 분해, **동적 레짐 기각** 판정 |
 | [docs/inverse_math.md](docs/inverse_math.md) | Inverse 계약 수학(손익·평균가·수수료·펀딩·청산) |
 | [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
 | [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |

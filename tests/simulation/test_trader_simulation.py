@@ -389,3 +389,50 @@ def test_shadow_funding_is_settled_once_per_event(tmp_path: Path) -> None:
     assert n_after == n_before
     assert trader.portfolio is not None
     assert trader.portfolio.ledger.totals().funding > 0  # income sync mirrored it into the ledger
+
+
+def test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest(
+    tmp_path: Path,
+) -> None:
+    """Live path parity: the trader must build the same causal funding features the engine uses."""
+    from btc_inventory_quant.backtest.engine import BacktestEngine as _Engine
+    from btc_inventory_quant.config.schema import FundingGuardParams
+    from btc_inventory_quant.data.funding_features import attach_funding_features
+    from btc_inventory_quant.strategy.funding_guard import FundingGuardStrategy
+
+    guard = FundingGuardParams(enabled=True, lookback_periods=9, min_periods=9, scale=D("0.5"))
+    h = Harness(tmp_path, db_name="guard.sqlite3")
+    strategy = FundingGuardStrategy(RegimeHedgeV1(PARAMS), guard)
+    trader = h.build_trader()
+    trader.strategy = strategy
+    trader.start()
+    results = h.run_days(WARMUP + 1, 25)
+    assert all(r.action in ("rebalance", "none", "skipped") for r in results)
+    assert h.exchange.position.contracts <= 0
+
+    # the engine, given the same funding calendar, must see identical guard inputs
+    frame = attach_funding_features(h.ds.frame, h.funding.events, (guard.lookback_periods,))
+    engine_signals = strategy.compute(frame)
+    live_frame = trader.completed_candles(h.market.now)
+    assert f"funding_mean_{guard.lookback_periods}" in live_frame.columns
+    live_signals = strategy.compute(live_frame)
+    common = live_signals.index.intersection(engine_signals.index)
+    assert len(common) > WARMUP
+    np.testing.assert_allclose(
+        live_signals.loc[common, "funding_mean"].to_numpy(dtype=float),
+        engine_signals.loc[common, "funding_mean"].to_numpy(dtype=float),
+        rtol=1e-12,
+    )
+    eng = _Engine(
+        dataset=h.ds,
+        funding_calendar=h.funding,
+        spec=h.spec,
+        strategy=strategy,
+        limits=h.config.risk,
+        cost=CostModelConfig(taker_fee_rate=D("0.0005"), slippage_bps=D("5")),
+        initial_btc=D("1"),
+        warmup_bars=WARMUP,
+    ).run()
+    live_ratio = np.array([float(r.effective_ratio) for r in results])
+    engine_ratio = eng.daily["current_ratio_at_open"].astype(float).to_numpy()[: len(results)]
+    np.testing.assert_allclose(live_ratio, engine_ratio, atol=1e-6)

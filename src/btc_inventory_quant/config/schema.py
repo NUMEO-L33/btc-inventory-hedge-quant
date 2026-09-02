@@ -68,11 +68,33 @@ class Ema200SimpleParams(StrictModel):
     above_ratio: Ratio = Decimal("0.00")
 
 
+class FundingGuardParams(StrictModel):
+    """V2 step 1: shrink the short when the trailing settled funding rate turns adverse.
+
+    A cost rule, not a direction forecast: a short receives funding when the rate is positive, so a
+    negative trailing mean means the position is paying to stay on.
+    """
+
+    enabled: bool = False
+    lookback_periods: int = Field(21, ge=1)  # settlements (3/day) → 21 ≈ 7 days
+    min_periods: int = Field(21, ge=1)  # do not act before the window is full
+    threshold_rate: Decimal = Decimal("0")  # per-settlement mean below this = adverse
+    scale: Ratio = Decimal("0.5")  # multiply the target by this while adverse
+    max_ratio_when_adverse: Ratio = Decimal("0.45")  # and cap it here
+
+    @model_validator(mode="after")
+    def _check(self) -> FundingGuardParams:
+        if self.min_periods > self.lookback_periods:
+            raise ValueError("min_periods must be <= lookback_periods")
+        return self
+
+
 class StrategyConfig(StrictModel):
     name: StrategyName = StrategyName.REGIME_HEDGE_V1
     regime_hedge: RegimeHedgeParams = RegimeHedgeParams()
     fixed_hedge: FixedHedgeParams = FixedHedgeParams()
     ema200_simple: Ema200SimpleParams = Ema200SimpleParams()
+    funding_guard: FundingGuardParams = FundingGuardParams()
     timeframe: Literal["1d"] = "1d"
 
 

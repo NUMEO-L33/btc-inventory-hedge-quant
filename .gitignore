@@ -28,6 +28,7 @@ reports/*/
 !reports/.gitkeep
 !reports/v1_reference/
 !reports/research_v1/
+!reports/v2_funding_guard/
 
 # data (raw data is committed for reproducibility only for the initial verified snapshot)
 data/processed/

@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "run_id": "v2_funding_guard-20260902T082326Z-1457e0d9",
+    "started_at_utc": "2026-09-02T08:23:26.527310+00:00",
+    "code_version": "0.1.0",
+    "git_commit": "c28408bd0493e0d60c96e167a65eab967f5e1442",
+    "config_path": "configs/backtest.yaml",
+    "config_sha256": "1457e0d9a4ed88b36cfdb84696fdda670820ded81997a984e3bf809a89e75108",
+    "python_version": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v22-x86_64-with-glibc2.39",
+    "seed": 42
+  },
+  "guard_params": {
+    "enabled": "True",
+    "lookback_periods": "21",
+    "min_periods": "21",
+    "threshold_rate": "0",
+    "scale": "0.5",
+    "max_ratio_when_adverse": "0.45"
+  },
+  "guard_activity": {
+    "fixed_50+guard": {
+      "days_evaluated": 2206,
+      "days_guard_active": 283,
+      "share_guard_active": 0.12828649138712603,
+      "mean_base_target": 0.5,
+      "mean_guarded_target": 0.4679283771532185,
+      "mean_reduction_when_active": 0.25
+    },
+    "regime_v1+guard": {
+      "days_evaluated": 2011,
+      "days_guard_active": 268,
+      "share_guard_active": 0.13326703132769765,
+      "mean_base_target": 0.43861263053207356,
+      "mean_guarded_target": 0.394617105917454,
+      "mean_reduction_when_active": 0.3301305970149255
+    }
+  },
+  "walk_forward_summary": {
+    "hodl": {
+      "folds": 7,
+      "folds_btc_positive": 0,
+      "mean_net_btc_growth": 0.0,
+      "mean_max_drawdown_usd": -0.25516244930850446
+    },
+    "fixed_50": {
+      "folds": 7,
+      "folds_btc_positive": 2,
+      "mean_net_btc_growth": -0.04590425179814466,
+      "mean_max_drawdown_usd": -0.13503598868796393
+    },
+    "fixed_50+guard": {
+      "folds": 7,
+      "folds_btc_positive": 2,
+      "mean_net_btc_growth": -0.026718869137941716,
+      "mean_max_drawdown_usd": -0.13913324698044854
+    },
+    "regime_v1": {
+      "folds": 7,
+      "folds_btc_positive": 1,
+      "mean_net_btc_growth": -0.04718254530305418,
+      "mean_max_drawdown_usd": -0.16487708816923155
+    },
+    "regime_v1+guard": {
+      "folds": 7,
+      "folds_btc_positive": 1,
+      "mean_net_btc_growth": -0.04423917544440951,
+      "mean_max_drawdown_usd": -0.17209459972852129
+    }
+  },
+  "note": "Guard parameters were fixed a priori, not tuned on these results."
+}
