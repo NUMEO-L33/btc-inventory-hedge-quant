@@ -19,6 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 DAY_MS = 86_400_000
@@ -102,7 +103,7 @@ def _quality(
     idx = df.index
     gaps: list[str] = []
     if len(idx) > 1:
-        ms = idx.asi8 // 1_000_000  # ns → ms
+        ms = np.asarray(idx.values).astype("datetime64[ms]").astype(np.int64)
         for i in range(len(ms) - 1):
             d = int(ms[i + 1] - ms[i])
             if d != DAY_MS:
