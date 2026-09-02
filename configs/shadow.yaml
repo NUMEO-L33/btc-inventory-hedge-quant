@@ -1,8 +1,21 @@
 # Shadow mode: REAL public market data from Binance COIN-M, SIMULATED account. No real orders are possible.
 mode: shadow
 
+# Strategy: regime_hedge_v1 was REJECTED by the V2 study (docs/strategy_v2.md §6.1) — static
+# hedging beat it on the full period, out-of-sample, walk-forward fold wins and trade count.
+#
+# The ratio below is a CONSERVATIVE DEFAULT, not an optimisation result. The V3 study
+# (docs/strategy_v3_static_ratio.md) found NO optimal static ratio exists in this data: the
+# trade-off is linear (~0.33% BTC per 180 days per 1pp of drawdown reduction) and adjacent-grid
+# noise is as large as the whole spread. 20% is chosen only because 10-20% is the one region that
+# survives every robustness check (-1bp adverse funding, and the least-bad worst 2-year window).
+#
+# Raising it buys drawdown reduction and costs BTC in bull markets: at 85% the worst 2-year window
+# ended at 0.284 BTC and -1bp/8h adverse funding turns it into a FAIL. Read §6 before changing it.
 strategy:
-  name: regime_hedge_v1
+  name: fixed_hedge
+  fixed_hedge:
+    ratio: "0.20"
 
 risk:
   max_hedge_ratio: "0.85"

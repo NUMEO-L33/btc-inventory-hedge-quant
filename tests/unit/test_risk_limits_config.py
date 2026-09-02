@@ -128,3 +128,29 @@ def test_fixed_100pct_benchmark_requires_explicit_bypass() -> None:
         }
     )  # type: ignore[arg-type]
     assert cfg.strategy.fixed_hedge.ratio == D("1")
+
+
+def test_shipped_configs_load_and_do_not_use_the_rejected_regime_strategy() -> None:
+    """Regression guard: V2 rejected regime_hedge_v1, V3 found no optimal static ratio.
+
+    An operating config must therefore (a) load, (b) not ship the rejected dynamic regime, and
+    (c) sit inside the 10-20% region that survived every V3 robustness check
+    (docs/strategy_v3_static_ratio.md §6). backtest.yaml is exempt: it is the research baseline
+    and deliberately keeps regime_hedge_v1 so the rejection stays reproducible.
+    """
+    operating = ("configs/shadow.yaml", "configs/testnet.yaml", "configs/live.example.yaml")
+    for path in operating:
+        p = Path(path)
+        if not p.exists():
+            continue
+        cfg = load_config(p)
+        assert cfg.strategy.name is not StrategyName.REGIME_HEDGE_V1, (
+            f"{path} still ships regime_hedge_v1, which docs/strategy_v2.md §6.1 rejected"
+        )
+        if cfg.strategy.name is StrategyName.FIXED_HEDGE:
+            assert D("0.10") <= cfg.strategy.fixed_hedge.ratio <= D("0.20"), (
+                f"{path} ratio {cfg.strategy.fixed_hedge.ratio} is outside the 10-20% region that "
+                "survived the V3 robustness checks; raising it is a deliberate risk-preference "
+                "change and this assertion must be updated together with the docs"
+            )
+        assert cfg.risk.max_hedge_ratio == D("0.85")

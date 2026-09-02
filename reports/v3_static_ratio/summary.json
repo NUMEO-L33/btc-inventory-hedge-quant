@@ -1,0 +1,51 @@
+{
+  "metadata": {
+    "run_id": "v3_static_ratio-20260902T093920Z-58b66cc1",
+    "started_at_utc": "2026-09-02T09:39:20.616956+00:00",
+    "code_version": "0.1.0",
+    "git_commit": "d8c78ea74bc8b44b7868658331d0bcfe91051e73",
+    "config_path": "/tmp/backtest_new.yaml",
+    "config_sha256": "58b66cc1c7a0733fcbf2a49998016d593b5defaf8389bbfc4b271709a63e5a5c",
+    "python_version": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v22-x86_64-with-glibc2.39",
+    "seed": 42
+  },
+  "design": {
+    "grid": [
+      0.0,
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85
+    ],
+    "ranking_statistic": "mean score_run over walk-forward test folds",
+    "plateau_rule": "score re-averaged with +/-5pp neighbours",
+    "boundary_rule": "a winner at 0.00 or 0.85 is reported as inconclusive",
+    "pre_registered": true
+  },
+  "plateau_winner": {
+    "ratio": 0.0,
+    "wf_mean_score": 0.0,
+    "plateau_score": 0.0,
+    "wf_folds_btc_positive": 0,
+    "on_grid_boundary": true
+  },
+  "data": {
+    "available": 6640,
+    "funding_events_covered": 6639,
+    "source": "mark_price_klines_8h"
+  }
+}

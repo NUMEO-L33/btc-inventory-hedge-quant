@@ -7,8 +7,14 @@
 #   equity <= live.max_initial_equity_btc (small-size guard).
 mode: live
 
+# Strategy: regime_hedge_v1 was REJECTED by the V2 study (docs/strategy_v2.md §6.1).
+# The ratio below is a CONSERVATIVE DEFAULT, not an optimisation result — the V3 study
+# (docs/strategy_v3_static_ratio.md) found no optimal static ratio exists in this data.
+# 10-20% is the only region surviving every robustness check; see §6 before changing it.
 strategy:
-  name: regime_hedge_v1
+  name: fixed_hedge
+  fixed_hedge:
+    ratio: "0.20"
 
 risk:
   max_hedge_ratio: "0.85"
