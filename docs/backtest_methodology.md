@@ -1,0 +1,79 @@
+# 백테스트 방법론
+
+구현: `src/btc_inventory_quant/backtest/` (engine, execution_model, funding_model, metrics, scenarios, walkforward, reports).
+
+## 1. 데이터
+
+| 데이터 | 출처 | 용도 |
+|---|---|---|
+| 거래 일봉 (`klines_1d`) | `GET /dapi/v1/klines?symbol=BTCUSD_PERP&interval=1d` | 지표 계산(종가), 체결가(다음 시가) |
+| 마크가격 일봉 (`mark_price_klines_1d`) | `GET /dapi/v1/markPriceKlines` | 미실현 손익, 자산가치, 헤지율, 목표 계약수 |
+| 인덱스 일봉 (`index_price_klines_1d`) | `GET /dapi/v1/indexPriceKlines?pair=BTCUSD` | 데이터 검증(마크/인덱스 괴리 > 2% 플래그) |
+| 펀딩 이력 (`funding_rate`) | `GET /dapi/v1/fundingRate` | 실제 펀딩 정산 (00/08/16 UTC) |
+| 계약 사양 (`exchange_info.json`) | `GET /dapi/v1/exchangeInfo` | 계약가치·수량 단위·틱 |
+
+* 모든 원본 JSON 페이지는 SHA-256 체크섬과 함께 `data/raw/manifest.json` 에 기록되며 `python -m btc_inventory_quant data verify` 로 재검증한다.
+* 미완결 캔들(`close_time ≥ as_of`)은 제외. 2020-08-11 ~ 2026-09-01 완결 일봉 2,213개, 펀딩 6,640건.
+* 데이터 이상: 2026-06-30 08:00 UTC 펀딩 레코드 1건이 거래소 원본에 없음(그대로 둠, 해당 정산 없음으로 처리).
+
+## 2. 체결 타임라인 (look-ahead 방지)
+
+```
+[j-1 일봉 종료 = j일 00:00 UTC] 신호 계산 (완결 캔들만)
+[j일 00:00] 00:00 펀딩 정산 (전일 포지션)
+[j일 시가]  현재 유효 헤지율·목표 계약수 계산(mark_open_j) → 리스크 파이프라인 → 주문 → open_j × (1 ± 슬리피지) 체결, Taker 수수료
+[j일 08:00, 16:00] 펀딩 정산 (체결 후 포지션)
+[j일 종료] mark_close_j 로 평가 → 일일 기록
+```
+
+* 신호를 만든 캔들에서 체결하지 않는다(`test_signal_executes_on_next_open_never_same_candle`).
+* 미래 데이터를 잘라내도 과거 결과가 변하지 않는다(`test_truncating_future_data_does_not_change_the_past`).
+* 지표·전략은 인과적이다(`test_indicators_are_causal`, `test_strategy_is_causal`).
+
+## 3. 비용 모델
+
+| 항목 | 기본값 | 근거 |
+|---|---|---|
+| Taker 수수료 | 0.05% | 보수적 VIP0 (2021 공지 0.050%; 현재 요율은 `commissionRate` 로 확인) |
+| Maker 수수료 | 0.02% | 보수적(공지 0.010%) — `use_maker: true` 시나리오에서만 사용 |
+| 슬리피지 | 5 bp | BTCUSD_PERP 유동성 기준 보수적 가정, 시나리오 ×3 |
+| 펀딩 | 실제 이력 | `funding_btc = 계약수×100/마크×비율`, 숏은 양(+)이면 수취 |
+| 부분체결 | 확률 p, 비율 r | 잔량은 다음날 재주문(`reorder_missed_next_day`) |
+| 주문 누락 | 인덱스/N번째 | 해당 리밸런싱 미체결, 다음날 재판단 |
+| 반올림 | 계약 정수 내림 | 목표 명목가치 이하로만 체결 |
+
+수수료 = 계약수 × 100 / 체결가 × 요율 (BTC). 슬리피지 비용은 체결가에 반영되며 원장에 참고 항목(`SLIPPAGE`)으로 별도 기록한다.
+
+## 4. 성과 지표
+
+BTC 기준(최종 BTC, 순증가, CAGR, MDD)과 USD 기준(최종 USD, CAGR, MDD, HODL 대비 초과성과)을 항상 함께 계산한다. 시작 USD = 시작 BTC × 첫 체결일 마크 시가. HODL 은 1 BTC 를 그대로 보유한 경우다.
+
+판정 규칙(`metrics.verdict`): BTC 수량 감소 또는 USD 가 HODL 대비 −30% 이하 또는 USD MDD 가 HODL 보다 5%p 이상 나쁘면 **FAIL**; USD 가 HODL 대비 −10% 이하면 **WEAK**; 그 외 **PASS**. BTC 만 늘고 USD 가 크게 줄면 성공으로 보지 않는다.
+
+주의(항등식): HODL 벤치마크가 같은 BTC 이므로 `HODL 대비 USD 초과성과 = 최종 BTC / 시작 BTC − 1` 로 **BTC 순증가율과 수학적으로 동일**하다. 따라서 두 번째 기준은 'HODL 대비'가 아니라 **USD 절대 수익률·최대 낙폭**(가치 붕괴 여부)으로 본다.
+
+BTC 손익 분해: 순 BTC 증가 = 헤지 타이밍 손익(실현+미실현) + 펀딩 + 수수료. 펀딩이 전부라면 타이밍 알파는 없는 것이다.
+
+## 5. 민감도 시나리오 (`scenarios.py`)
+
+기본 / 수수료 ×2 / 슬리피지 ×3 / 불리한 펀딩(−1bp, −3bp per 8h) / 신호 1일 지연 / 리밸런싱 1회 누락(#1, #5) / 10회마다 누락 / 부분체결(50%, p=0.5) / 복합(수수료×2+슬리피지×3+지연) / Maker 체결.
+
+## 6. 과최적화 방지 (`walkforward.py`)
+
+1. **시간순 분리**: 워밍업 이후 거래 가능 일수의 60% 연구 / 20% 검증 / 20% OOS. 무작위 섞기 없음.
+2. **제한 그리드(72개)**: bull {0.10, 0.20} × neutral {0.30, 0.45, 0.60} × bear {0.70, 0.85} × 확인일 {2, 5, 10} × 기울기 {5, 10}.
+3. **목적함수**: `0.5·CAGR_BTC + 0.5·(CAGR_USD − HODL_CAGR_USD) − 0.25·max(0, MDD_HODL − MDD)`.
+4. **Plateau 선호**: 최종 점수 = 0.5·자기 점수 + 0.5·인접 조합(한 파라미터 한 칸) 평균. 고립된 최고점보다 안정 영역을 택한다.
+5. **Nested Walk-forward**: 훈련 730일 → 시험 180일, 180일 전진. 각 폴드에서 훈련 구간만으로 그리드 선택 → 시험 구간 평가. 고정 V1·HODL·고정 50% 와 폴드별 비교.
+6. **시작일 의존성**: 91일 간격 시작, 2년 보유 결과 분포.
+7. **기록**: 모든 그리드 결과·폴드·점수·설정 해시·seed·git 커밋을 `reports/research-*/` 에 저장.
+
+**OOS 결과를 본 뒤 파라미터를 바꾸면 그 구간은 더 이상 OOS 가 아니다.** 이 프로젝트의 OOS 구간 결과는 한 번 보고된 뒤 파라미터 변경 근거로 사용하지 않는다.
+
+## 7. 알려진 한계
+
+* 일봉 해상도: 일중 청산·펀딩 시점 마크가격은 근사(2023-11 이전).
+* 계약 사양 이력: 현재 사양(100 USD/계약, 정수 계약)을 전 기간에 적용.
+* 슬리피지·부분체결은 모델값. 실거래 체결 데이터로 재보정 필요.
+* 거래소 수수료율 변경 이력 미반영(보수적 고정값).
+* 단일 심볼·단일 거래소.

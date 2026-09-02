@@ -500,7 +500,8 @@ def write_markdown_report(
     table = pivot.pivot(index="year", columns="month", values="strategy_usd")
     lines.append("| 연도 | " + " | ".join(f"{m}월" for m in range(1, 13)) + " |")
     lines.append("|---|" + "---|" * 12)
-    for year, row_values in table.iterrows():
+    for year_key, row_values in table.iterrows():
+        year = int(str(year_key))
         vals = dict(row_values)
         cells = [("" if pd.isna(vals.get(m)) else f"{float(vals[m]):+.1%}") for m in range(1, 13)]
         lines.append(f"| {year} | " + " | ".join(cells) + " |")
