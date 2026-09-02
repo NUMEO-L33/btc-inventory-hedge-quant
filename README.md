@@ -8,6 +8,8 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 > **V2 연구 결과(2026-09-02)**: 펀딩 가드는 역펀딩 −1bp/8h 의 FAIL 을 PASS 로 복구하지만, 실제 과거 데이터의 개선분은 펀딩 절감이 아닌 방향성 잡음이라 **기본 비활성화**입니다. 같은 실험에서 **동적 레짐(V1)이 정적 고정 헤지보다 모든 축에서 열등함이 확인되어 기각**되었습니다 — [docs/strategy_v2.md](docs/strategy_v2.md).
 >
 > **V3 연구 결과(2026-09-02)**: 남은 유일한 파라미터인 정적 비율을 0~85% 전수 탐색한 결과 **최적 비율은 존재하지 않습니다.** 낙폭 1%p 당 약 0.33%(180일)의 BTC를 내는 **선형 가격표**이며, 비율 선택은 최적화가 아니라 **위험 선호**입니다. 이 전략은 알파가 아니라 **보험**이고(7폴드 중 하락장 2폴드에서만 이익, 폭등장 폴드에서 BTC −51.5%), 표본에 폭락이 한 번뿐이라 기대가치를 검증할 수 없습니다 — [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md).
+>
+> **V4 연구 결과(2026-09-02)**: 대조군(무작위·셔플)을 처음 도입한 결과 **다중비교 보정 후 유의미한 것이 하나도 없습니다.** 보정 전 유의했던 2건은 **거래비용 회피 아티팩트**였고(5회 거래 vs 962회), 거래 수를 보존한 공정 대조군에서 `regime_hedge_v1` 의 타이밍은 **자기 신호를 무작위로 재배열한 것의 중앙값보다 못했습니다**(41 퍼센타일). 아울러 이 프로젝트가 보고했던 **모든 승률의 Wilson 95% 구간이 0.5를 포함**하여, V2 §6.1 의 근거 1건을 철회했습니다 — [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md).
 
 ## 1. 핵심 결과 한눈에 (2021-03-10 → 2026-09-01, 실데이터)
 
@@ -20,7 +22,8 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 | 동적 헤지 V1 | 1.109 | +8.5% | −47.1% | 243 | PASS(전기간) / **검증구간 FAIL** |
 
 * V1 의 BTC 순증가 0.109 중 **펀딩 수취가 0.125**, 타이밍 손익은 수수료를 넘지 못함.
-* Walk-forward 7폴드 중 BTC 증가 1회. 펀딩이 −1bp/8h 만 불리해도 FAIL.
+* Walk-forward 7폴드 중 BTC 증가 1회 — 다만 Wilson 95% CI [0.026, 0.513] 로 **동전던지기와 구분되지 않습니다**(V4 §2). 펀딩이 −1bp/8h 만 불리해도 FAIL.
+* 거래 수를 보존한 공정 대조군에서 V1 의 타이밍은 자기 신호의 무작위 재배열보다 **못했습니다**(41 퍼센타일, V4 §6).
 * 일관된 효과는 USD 낙폭 축소와 펀딩 캐리뿐이며 정적 50% 헤지도 같은 효과를 냄.
 
 ## 2. 설치
@@ -98,6 +101,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 | [docs/strategy_spec.md](docs/strategy_spec.md) | V1 규칙·파라미터·검증 결과·정직한 결론 |
 | [docs/strategy_v2.md](docs/strategy_v2.md) | V2 펀딩 가드 연구 — 2×2 실험, 손익 귀속 분해, **동적 레짐 기각** 판정 |
 | [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 정적 비율 프론티어 — **최적 비율 부재** 판정, 보험 구조 해부, 강건 구간 10~20% |
+| [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md) | V4 대조군 검정 — **무작위 대비 유의성 0건**, 승률 주장 철회, 거래비용 아티팩트 해부 |
 | [docs/inverse_math.md](docs/inverse_math.md) | Inverse 계약 수학(손익·평균가·수수료·펀딩·청산) |
 | [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
 | [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |
