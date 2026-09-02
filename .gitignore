@@ -29,6 +29,8 @@ reports/*/
 !reports/v1_reference/
 !reports/research_v1/
 !reports/v2_funding_guard/
+!reports/v2_funding_guard_new/
+!reports/snapshot_diff/
 
 # data (raw data is committed for reproducibility only for the initial verified snapshot)
 data/processed/

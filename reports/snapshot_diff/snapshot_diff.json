@@ -1,0 +1,252 @@
+{
+  "old": {
+    "raw_dir": "data/raw",
+    "bars": 2213,
+    "start": "2020-08-11T00:00:00+00:00",
+    "end": "2026-09-01T00:00:00+00:00",
+    "funding_rows": 6640,
+    "settlement_marks": {
+      "available": 0,
+      "funding_events_covered": 0,
+      "source": "daily_kline_approximation"
+    }
+  },
+  "new": {
+    "raw_dir": "data/raw_new",
+    "bars": 2213,
+    "start": "2020-08-11T00:00:00+00:00",
+    "end": "2026-09-01T00:00:00+00:00",
+    "funding_rows": 6641,
+    "settlement_marks": {
+      "available": 6640,
+      "funding_events_covered": 6639,
+      "source": "mark_price_klines_8h"
+    }
+  },
+  "rows": [
+    {
+      "strategy": "hodl",
+      "metric": "final_btc",
+      "old": 1.0,
+      "new": 1.0,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "net_btc_growth",
+      "old": 0.0,
+      "new": 0.0,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "cagr_usd",
+      "old": 0.06439212419247275,
+      "new": 0.06439212419247275,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "max_drawdown_usd",
+      "old": -0.7671215666335087,
+      "new": -0.7671215666335087,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "total_funding_btc",
+      "old": 0.0,
+      "new": 0.0,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "total_fees_btc",
+      "old": 0.0,
+      "new": 0.0,
+      "delta": 0.0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "total_trades",
+      "old": 0,
+      "new": 0,
+      "delta": 0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "funding_events_exact_mark",
+      "old": 3106,
+      "new": 3106,
+      "delta": 0
+    },
+    {
+      "strategy": "hodl",
+      "metric": "funding_events_kline_8h_mark",
+      "old": 0,
+      "new": 2899,
+      "delta": 2899
+    },
+    {
+      "strategy": "hodl",
+      "metric": "funding_events_approximated_mark",
+      "old": 2899,
+      "new": 0,
+      "delta": -2899
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "final_btc",
+      "old": 1.2459655609249585,
+      "new": 1.2445739665968258,
+      "delta": -0.0013915943281326282
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "net_btc_growth",
+      "old": 0.24596556092495847,
+      "new": 0.24457396659682584,
+      "delta": -0.0013915943281326282
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "cagr_usd",
+      "old": 0.10796494081830521,
+      "new": 0.1077390715471589,
+      "delta": -0.00022586927114631727
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "max_drawdown_usd",
+      "old": -0.4867869653657273,
+      "new": -0.4872038318790781,
+      "delta": -0.00041686651335082203
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "total_funding_btc",
+      "old": 0.24616286377457444,
+      "new": 0.24522941483056163,
+      "delta": -0.0009334489440128158
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "total_fees_btc",
+      "old": -0.0008870747991514067,
+      "new": -0.0008847066858118398,
+      "delta": 2.3681133395668866e-06
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "total_trades",
+      "old": 11,
+      "new": 11,
+      "delta": 0
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "funding_events_exact_mark",
+      "old": 3106,
+      "new": 3106,
+      "delta": 0
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "funding_events_kline_8h_mark",
+      "old": 0,
+      "new": 2899,
+      "delta": 2899
+    },
+    {
+      "strategy": "fixed_50",
+      "metric": "funding_events_approximated_mark",
+      "old": 2899,
+      "new": 0,
+      "delta": -2899
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "final_btc",
+      "old": 1.1084511559818475,
+      "new": 1.097684628056761,
+      "delta": -0.010766527925086589
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "net_btc_growth",
+      "old": 0.10845115598184751,
+      "new": 0.09768462805676092,
+      "delta": -0.010766527925086589
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "cagr_usd",
+      "old": 0.08457566571287911,
+      "new": 0.08264602587976588,
+      "delta": -0.001929639833113228
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "max_drawdown_usd",
+      "old": -0.4711551177173675,
+      "new": -0.4756683632865448,
+      "delta": -0.0045132455691773155
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "total_funding_btc",
+      "old": 0.12463784657538762,
+      "new": 0.12325195587108968,
+      "delta": -0.0013858907042979401
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "total_fees_btc",
+      "old": -0.023786811826635626,
+      "new": -0.02362084723574071,
+      "delta": 0.0001659645908949174
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "total_trades",
+      "old": 243,
+      "new": 243,
+      "delta": 0
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "funding_events_exact_mark",
+      "old": 3106,
+      "new": 3106,
+      "delta": 0
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "funding_events_kline_8h_mark",
+      "old": 0,
+      "new": 2899,
+      "delta": 2899
+    },
+    {
+      "strategy": "regime_v1",
+      "metric": "funding_events_approximated_mark",
+      "old": 2899,
+      "new": 0,
+      "delta": -2899
+    }
+  ],
+  "verdicts": {
+    "hodl": [
+      "BENCHMARK",
+      "BENCHMARK"
+    ],
+    "fixed_50": [
+      "PASS",
+      "PASS"
+    ],
+    "regime_v1": [
+      "PASS",
+      "PASS"
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "datasets": {
+    "klines_1d": {
+      "pages": [
+        {
+          "file": "klines_1d/page_001.json",
+          "url": "https://dapi.binance.com/dapi/v1/klines?symbol=BTCUSD_PERP&interval=1d&startTime=1596240000000&limit=1500",
+          "rows": 1500,
+          "sha256": "bdbbf7950ba0cdd24d9c8d59c728ebecebdd42e37b9e149796669597ae04545a",
+          "verified": true
+        },
+        {
+          "file": "klines_1d/page_002.json",
+          "url": "https://dapi.binance.com/dapi/v1/klines?symbol=BTCUSD_PERP&interval=1d&startTime=1726617600001&limit=1500",
+          "rows": 714,
+          "sha256": "a78bd1d8319d094e269d89e0ee5da5ba58636eda7620112e1d7affc4821e40c3",
+          "verified": true
+        }
+      ],
+      "total_rows": 2214,
+      "first_time_ms": 1597104000000,
+      "last_time_ms": 1788307200000,
+      "first_date": "2020-08-11T00:00:00+00:00",
+      "last_date": "2026-09-02T00:00:00+00:00"
+    },
+    "mark_price_klines_1d": {
+      "pages": [
+        {
+          "file": "mark_price_klines_1d/page_001.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=1d&startTime=1596240000000&limit=1500",
+          "rows": 1500,
+          "sha256": "36d0aedb3b709e74a62e97cb057109103e3037a284e5024a4b0f525a99376256",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_1d/page_002.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=1d&startTime=1726617600001&limit=1500",
+          "rows": 714,
+          "sha256": "5a392236117adfc1aa61ef3b33456feaa819f278a5a198e8bb4b37230f976a2e",
+          "verified": true
+        }
+      ],
+      "total_rows": 2214,
+      "first_time_ms": 1597104000000,
+      "last_time_ms": 1788307200000,
+      "first_date": "2020-08-11T00:00:00+00:00",
+      "last_date": "2026-09-02T00:00:00+00:00"
+    },
+    "index_price_klines_1d": {
+      "pages": [
+        {
+          "file": "index_price_klines_1d/page_001.json",
+          "url": "https://dapi.binance.com/dapi/v1/indexPriceKlines?pair=BTCUSD&interval=1d&startTime=1596240000000&limit=1500",
+          "rows": 1500,
+          "sha256": "ba592fa43bc8f1c377f1b9f88d2aad17e9ba18f1a2c89f8ae2a215e24d1f0ebc",
+          "verified": true
+        },
+        {
+          "file": "index_price_klines_1d/page_002.json",
+          "url": "https://dapi.binance.com/dapi/v1/indexPriceKlines?pair=BTCUSD&interval=1d&startTime=1725753600001&limit=1500",
+          "rows": 724,
+          "sha256": "2f8731fce7f93e3eda31f1dbf49512efed42877db744861f7c18022a71d3ba64",
+          "verified": true
+        }
+      ],
+      "total_rows": 2224,
+      "first_time_ms": 1596240000000,
+      "last_time_ms": 1788307200000,
+      "first_date": "2020-08-01T00:00:00+00:00",
+      "last_date": "2026-09-02T00:00:00+00:00"
+    },
+    "funding_rate": {
+      "pages": [
+        {
+          "file": "funding_rate/page_001.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1596240000000&limit=1000",
+          "rows": 1000,
+          "sha256": "d12c84448e5423d6d79fbef5dd9e0a99b5ae118c19bea34436fde949a82ac357",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_002.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1625846400003&limit=1000",
+          "rows": 1000,
+          "sha256": "e1f55e14a69d06dade1ac010314cd237237c68573993195c48b91c9ef6b3a82b",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_003.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1654646400006&limit=1000",
+          "rows": 1000,
+          "sha256": "dc6e484c1ae9c186e2c61c0c9171b1b865da63ae0bb296b1b7022afdeba90559",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_004.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1683446400001&limit=1000",
+          "rows": 1000,
+          "sha256": "e3b2dbb85b6f04c3eef147e5c74b0008439e2b96713ec8ed366c90a15ad73576",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_005.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1712246400001&limit=1000",
+          "rows": 1000,
+          "sha256": "ad725186b226d811a0492e1c67afec2bc6a88fe902e8a25c1db5ccede4ba7784",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_006.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1741046400003&limit=1000",
+          "rows": 1000,
+          "sha256": "8ed702308d30b2ce6337284f8abbe675c34f06cdb8c1e574dd0ca7884c5b6ee6",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_007.json",
+          "url": "https://dapi.binance.com/dapi/v1/fundingRate?symbol=BTCUSD_PERP&startTime=1769846400007&limit=1000",
+          "rows": 641,
+          "sha256": "c9a054f662c7b212b99285cb0bf31e602e1b43e8bb82f61302b4c92e1ae5ac6b",
+          "verified": true
+        }
+      ],
+      "total_rows": 6641,
+      "first_time_ms": 1597075200000,
+      "last_time_ms": 1788336000001,
+      "first_date": "2020-08-10T16:00:00+00:00",
+      "last_date": "2026-09-02T08:00:00.001000+00:00"
+    },
+    "mark_price_klines_8h": {
+      "pages": [
+        {
+          "file": "mark_price_klines_8h/page_001.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=8h&startTime=1596240000000&limit=1500",
+          "rows": 1500,
+          "sha256": "4f1857cf2fcbd626c8f189a3724e44c75804afd6f434711fc711a5b6498dd18d",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_002.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=8h&startTime=1640304000001&limit=1500",
+          "rows": 1500,
+          "sha256": "1d3aa5ee6a795ae09f231c628a09fcdb87d37f794498e19a2a36ad6c4014cc7c",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_003.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=8h&startTime=1683504000001&limit=1500",
+          "rows": 1500,
+          "sha256": "1470e7a22de62fc7b313dfb414da994ed8fbcc39221d6280bb66f34eb5b27762",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_004.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=8h&startTime=1726704000001&limit=1500",
+          "rows": 1500,
+          "sha256": "7ff67a2857cc0111174b915db4424239a52d881030895b00303dc65c0e36805a",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_005.json",
+          "url": "https://dapi.binance.com/dapi/v1/markPriceKlines?symbol=BTCUSD_PERP&interval=8h&startTime=1769904000001&limit=1500",
+          "rows": 640,
+          "sha256": "a71d91abfe51a8ad55f3d9ccaffb59802c8e71f8e5457b72d0bf11924113de71",
+          "verified": true
+        }
+      ],
+      "total_rows": 6640,
+      "first_time_ms": 1597132800000,
+      "last_time_ms": 1788336000000,
+      "first_date": "2020-08-11T08:00:00+00:00",
+      "last_date": "2026-09-02T08:00:00+00:00"
+    }
+  },
+  "snapshots": {
+    "exchange_info": {
+      "file": "exchange_info.json",
+      "url": "https://dapi.binance.com/dapi/v1/exchangeInfo",
+      "sha256": "6a94f4be586f49f8d25e4caf0969959d2a60a03be92b3cd4c7e182e8dec4d9b6"
+    },
+    "premium_index": {
+      "file": "premium_index.json",
+      "url": "https://dapi.binance.com/dapi/v1/premiumIndex?symbol=BTCUSD_PERP",
+      "sha256": "30dfb3472482ebd8b7fbb8031f3cba7d67dcd48b088ebeb52315c896add3df88"
+    },
+    "server_time": {
+      "file": "server_time.json",
+      "url": "https://dapi.binance.com/dapi/v1/time",
+      "sha256": "f008b86e1a1bf20185123aee511e2377e1c72481c97b8c68eb09376b0d0b9067"
+    },
+    "funding_info": {
+      "file": "funding_info.json",
+      "url": "https://dapi.binance.com/dapi/v1/fundingInfo",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "fetched_at_utc": "2026-09-02T08:21:35.534511+00:00",
+  "source": {
+    "exchange": "Binance COIN-M public REST",
+    "base_url": "https://dapi.binance.com",
+    "symbol": "BTCUSD_PERP",
+    "pair": "BTCUSD"
+  },
+  "collection_method": "btc_inventory_quant.data.downloader (httpx, verbatim JSON, canonical sha256)"
+}
