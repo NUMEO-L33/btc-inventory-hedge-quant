@@ -107,7 +107,9 @@ def _quality(
         for i in range(len(ms) - 1):
             d = int(ms[i + 1] - ms[i])
             if d != DAY_MS:
-                gaps.append(f"{idx[i].isoformat()} -> {idx[i + 1].isoformat()} ({d / DAY_MS:.2f} days)")
+                gaps.append(
+                    f"{idx[i].isoformat()} -> {idx[i + 1].isoformat()} ({d / DAY_MS:.2f} days)"
+                )
     o, h, low, c = (df[f"{prefix}{k}"] for k in ("open", "high", "low", "close"))
     violations = int(((low > o) | (low > c) | (h < o) | (h < c) | (low <= 0)).sum())
     return DataQualityReport(

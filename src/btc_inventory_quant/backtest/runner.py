@@ -1,0 +1,147 @@
+"""Backtest orchestration: data → strategy + benchmarks → metrics → report bundle."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime, time
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from btc_inventory_quant.backtest.engine import BacktestEngine, BacktestResult
+from btc_inventory_quant.backtest.metrics import summarize
+from btc_inventory_quant.backtest.reports import StrategyRun, write_bundle
+from btc_inventory_quant.config.loader import RunMetadata
+from btc_inventory_quant.config.schema import (
+    AppConfig,
+    BenchmarkSpec,
+    CostModelConfig,
+    Ema200SimpleParams,
+    FixedHedgeParams,
+    StrategyConfig,
+    StrategyName,
+)
+from btc_inventory_quant.data.funding_data import FundingCalendar
+from btc_inventory_quant.data.market_data import DailyDataset
+from btc_inventory_quant.data.repositories import MarketDataRepository
+from btc_inventory_quant.domain.inverse_contract import ContractSpec
+from btc_inventory_quant.strategy.base import Strategy
+from btc_inventory_quant.strategy.benchmarks import build_strategy
+
+
+def default_benchmarks() -> tuple[BenchmarkSpec, ...]:
+    return (
+        BenchmarkSpec(name="hodl", strategy=StrategyConfig(name=StrategyName.HODL)),
+        BenchmarkSpec(
+            name="fixed_hedge_100",
+            strategy=StrategyConfig(
+                name=StrategyName.FIXED_HEDGE,
+                fixed_hedge=FixedHedgeParams(ratio=Decimal("1"), bypass_max_hedge_cap=True),
+            ),
+        ),
+        BenchmarkSpec(
+            name="fixed_hedge_50",
+            strategy=StrategyConfig(
+                name=StrategyName.FIXED_HEDGE, fixed_hedge=FixedHedgeParams(ratio=Decimal("0.5"))
+            ),
+        ),
+        BenchmarkSpec(
+            name="ema200_simple",
+            strategy=StrategyConfig(
+                name=StrategyName.EMA200_SIMPLE, ema200_simple=Ema200SimpleParams()
+            ),
+        ),
+    )
+
+
+@dataclass(slots=True)
+class LoadedMarket:
+    dataset: DailyDataset
+    funding: FundingCalendar
+    spec: ContractSpec
+    quality: dict[str, Any]
+
+
+def load_market(config: AppConfig, as_of: datetime | None = None) -> LoadedMarket:
+    repo = MarketDataRepository(config.data, as_of=as_of)
+    spec = repo.contract_spec()
+    dataset = repo.daily()
+    funding, funding_report = repo.funding()
+    quality = {
+        "market": {k: v.to_dict() for k, v in dataset.quality.items()},
+        "funding": funding_report.to_dict(),
+        "notes": dataset.frame.attrs.get("notes", []),
+        "contract_spec_source": spec.source,
+    }
+    return LoadedMarket(dataset=dataset, funding=funding, spec=spec, quality=quality)
+
+
+def _to_dt(d: Any) -> datetime | None:
+    if d is None:
+        return None
+    return datetime.combine(d, time(0, 0), tzinfo=UTC)
+
+
+def run_strategy(
+    market: LoadedMarket,
+    strategy: Strategy,
+    config: AppConfig,
+    cost: CostModelConfig | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    initial_btc: Decimal | None = None,
+    seed: int | None = None,
+) -> StrategyRun:
+    bt = config.backtest
+    engine = BacktestEngine(
+        dataset=market.dataset,
+        funding_calendar=market.funding,
+        spec=market.spec,
+        strategy=strategy,
+        limits=config.risk,
+        cost=cost or bt.cost,
+        initial_btc=initial_btc or bt.initial_btc,
+        seed=bt.seed if seed is None else seed,
+        start=start if start is not None else _to_dt(bt.start),
+        end=end if end is not None else _to_dt(bt.end),
+        warmup_bars=bt.warmup_bars,
+    )
+    result: BacktestResult = engine.run()
+    summary, frames = summarize(result, initial_btc or bt.initial_btc)
+    return StrategyRun(result=result, summary=summary, frames=frames)
+
+
+def run_backtest(
+    config: AppConfig,
+    metadata: RunMetadata,
+    out_dir: Path | None = None,
+    sensitivity: pd.DataFrame | None = None,
+    as_of: datetime | None = None,
+    market: LoadedMarket | None = None,
+) -> tuple[Path, StrategyRun, list[StrategyRun]]:
+    market = market or load_market(config, as_of=as_of)
+    main = run_strategy(market, build_strategy(config.strategy), config)
+    benchmark_specs = config.backtest.benchmarks or default_benchmarks()
+    benchmarks: list[StrategyRun] = []
+    for b in benchmark_specs:
+        if b.strategy.name == config.strategy.name and b.strategy == config.strategy:
+            continue
+        benchmarks.append(run_strategy(market, build_strategy(b.strategy), config))
+    out = out_dir or (config.backtest.report_dir / metadata.run_id)
+    write_bundle(
+        out,
+        main,
+        benchmarks,
+        metadata.to_dict(),
+        config.model_dump(mode="json"),
+        market.quality,
+        sensitivity=sensitivity,
+        notes=[
+            "펀딩 명목가치 공식(계약수×계약가치÷마크가격)은 공식 문서에서 COIN-M 전용 원문을 찾지 못해 PARTIAL 상태이며 Shadow/Testnet 실측으로 역검증 예정.",
+            "슬리피지·부분체결은 모델값이며 실제 체결 품질은 실거래 데이터로 재보정 필요.",
+        ],
+        make_charts=config.backtest.make_charts,
+    )
+    return out, main, benchmarks

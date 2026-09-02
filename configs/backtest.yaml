@@ -1,0 +1,69 @@
+# BTC Inventory Hedge Quant — backtest configuration (V1 reference parameters)
+mode: backtest
+
+strategy:
+  name: regime_hedge_v1
+  timeframe: 1d
+  regime_hedge:
+    ema_fast: 20
+    ema_mid: 50
+    ema_slow: 200
+    atr_period: 20
+    slope_lookback: 5
+    hedge_bull: "0.10"
+    hedge_neutral: "0.45"
+    hedge_bear: "0.80"
+    overbought_atr_mult: "2"
+    oversold_atr_mult: "2"
+    overbought_adjustment: "0.10"
+    oversold_adjustment: "-0.10"
+    regime_confirm_bars: 2
+
+risk:                              # single source of truth for every limit
+  max_hedge_ratio: "0.85"
+  min_hedge_ratio: "0.00"
+  max_daily_hedge_change: "0.20"
+  min_rebalance_diff: "0.10"
+  max_effective_leverage: "1.0"
+  max_short_notional_to_equity: "1.0"
+
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  exchange_info_path: data/raw/exchange_info.json
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+  funding_mark_source: funding_record_or_daily
+  require_index_validation: true
+  max_mark_index_divergence: "0.02"
+
+backtest:
+  start: null                      # null = first day after warm-up
+  end: null
+  initial_btc: "1"
+  seed: 42
+  report_dir: reports
+  run_name: v1_reference
+  warmup_bars: 210
+  sensitivity: true
+  make_charts: true
+  cost:
+    taker_fee_rate: "0.0005"       # conservative VIP0 taker (verify with GET /dapi/v1/commissionRate)
+    maker_fee_rate: "0.0002"
+    use_maker: false               # conservative: taker fills
+    slippage_bps: "5"
+    fee_multiplier: "1"
+    slippage_multiplier: "1"
+    funding_adverse_bps_per_period: "0"
+    signal_delay_days: 0
+    partial_fill_ratio: "1"
+    partial_fill_probability: "0"
+    missed_rebalance_every_n: 0
+    missed_rebalance_indices: []
+    reorder_missed_next_day: true
+  split:
+    research_fraction: "0.6"
+    validation_fraction: "0.2"
+    walk_forward_train_days: 730
+    walk_forward_test_days: 180
+    walk_forward_step_days: 180
