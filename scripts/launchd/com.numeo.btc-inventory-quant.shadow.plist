@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent: keeps shadow mode running at login and restarts it if it exits.
+  Install (replace /PATH/TO/REPO with the absolute repository path):
+    sed "s#/PATH/TO/REPO#$(pwd)#g" scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist \
+      > ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.shadow.plist
+    launchctl load ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.shadow.plist
+  Stop:      launchctl unload ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.shadow.plist
+  Logs:      tail -f /PATH/TO/REPO/state/shadow.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.numeo.btc-inventory-quant.shadow</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/PATH/TO/REPO/.venv/bin/python</string>
+    <string>-m</string>
+    <string>btc_inventory_quant</string>
+    <string>shadow</string>
+    <string>--config</string>
+    <string>configs/shadow.yaml</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/PATH/TO/REPO</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BIQ_LOG_JSON</key>
+    <string>true</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>/PATH/TO/REPO/state/shadow.log</string>
+  <key>StandardErrorPath</key>
+  <string>/PATH/TO/REPO/state/shadow.log</string>
+</dict>
+</plist>

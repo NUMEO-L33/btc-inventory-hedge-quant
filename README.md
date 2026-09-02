@@ -21,15 +21,32 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 
 ## 2. 설치
 
+**macOS (Apple Silicon / Intel)** — 한 줄 부트스트랩(Python 3.12 확인·설치, venv, 의존성, 데이터 검증, 테스트):
 ```bash
-git clone <repo> && cd btc-inventory-hedge-quant
-python3.12 -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
+cd btc-inventory-hedge-quant
+bash scripts/setup_macos.sh
+source .venv/bin/activate
+```
+수동 설치:
+```bash
+brew install python@3.12                                        # 없을 때만
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
 python -m pytest -q                                             # 119 tests (unit / integration / simulation)
 ```
+Shadow 모드를 로그인 시 자동 실행하려면 `scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist` 의 설치 절차(파일 상단 주석)를 따르세요.
 
-Docker: `docker compose run --rm backtest` / `docker compose up -d shadow`.
+**Windows (PowerShell)**:
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\activate
+pip install -e ".[dev]"
+copy .env.example .env
+python -m pytest -q
+```
+
+**Linux / Docker**: `python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"` 또는 `docker compose run --rm backtest` / `docker compose up -d shadow`.
 
 ## 3. 백테스트 실행
 

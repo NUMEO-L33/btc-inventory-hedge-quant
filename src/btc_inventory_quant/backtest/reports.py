@@ -32,7 +32,8 @@ def _configure_fonts() -> bool:
         "Noto Sans CJK JP",
         "Noto Sans CJK SC",
         "NanumGothic",
-        "Malgun Gothic",
+        "Malgun Gothic",  # Windows
+        "Apple SD Gothic Neo",  # macOS
         "AppleGothic",
     )
     available = {f.name for f in font_manager.fontManager.ttflist}

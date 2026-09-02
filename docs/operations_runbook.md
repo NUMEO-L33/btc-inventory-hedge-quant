@@ -3,12 +3,14 @@
 ## 0. 사전 준비
 
 ```bash
-python3.12 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-cp .env.example .env                                          # 키 입력, 절대 커밋 금지
+bash scripts/setup_macos.sh                                   # macOS: Python 3.12 확인 → venv → 설치 → 데이터 검증 → 테스트
+source .venv/bin/activate
+# 수동(모든 OS): python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
+cp .env.example .env                                          # 키 입력, 절대 커밋 금지 (setup 스크립트가 자동 생성)
 python -m btc_inventory_quant data verify                     # 원본 데이터 체크섬
 python -m pytest -q                                           # 119 테스트
 ```
+macOS 상시 실행: `scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist` (파일 상단 설치 절차) → `launchctl load` 후 `tail -f state/shadow.log`.
 
 ## 1. 백테스트
 
