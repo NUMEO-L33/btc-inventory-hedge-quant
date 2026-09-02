@@ -26,6 +26,8 @@ state/
 logs/
 reports/*/
 !reports/.gitkeep
+!reports/v1_reference/
+!reports/research_v1/
 
 # data (raw data is committed for reproducibility only for the initial verified snapshot)
 data/processed/

@@ -272,7 +272,14 @@ def run_mode(
     settings = load_settings()
     components = build_components(config, settings, mode)
     trader = build_trader(components, mode, confirm_live=confirm_live)
-    return trader.run(once=once, max_cycles=max_cycles)
+    try:
+        return trader.run(once=once, max_cycles=max_cycles)
+    except ExchangeError as exc:
+        log.error(
+            "cannot run: exchange unreachable or rejected the request", fields={"error": str(exc)}
+        )
+        components.alerter.notify("system_start_failed", str(exc), level="ERROR")
+        return 1
 
 
 def ops_command(command: str, config_path: str, release: bool = False, ack: str = "") -> int:

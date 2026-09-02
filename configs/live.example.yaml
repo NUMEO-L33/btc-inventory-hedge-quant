@@ -50,7 +50,7 @@ execution:
   client_order_id_prefix: biq
 
 storage:
-  database_url: postgresql+psycopg://biq:biq@localhost:5432/biq   # or sqlite:///state/live.sqlite3
+  database_url: sqlite:///state/live.sqlite3   # PostgreSQL: postgresql+psycopg://biq:biq@localhost:5432/biq (pip install -e ".[postgres]")
 
 monitoring:
   alert_channels: [log, telegram]

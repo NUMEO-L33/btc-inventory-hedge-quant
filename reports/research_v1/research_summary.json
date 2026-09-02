@@ -1,0 +1,221 @@
+{
+  "metadata": {
+    "run_id": "research-20260902T065605Z-4f4dd4af",
+    "started_at_utc": "2026-09-02T06:56:05.485763+00:00",
+    "code_version": "0.1.0",
+    "git_commit": "30eb99387c6dffe5975144aa819553f971aaa4a0",
+    "config_path": "configs/backtest.yaml",
+    "config_sha256": "4f4dd4af078ebf06cd365f5e3400f866d1d3584ff2bb0a3d83da5fd68ac266df",
+    "python_version": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v22-x86_64-with-glibc2.39",
+    "seed": 42
+  },
+  "split_boundaries": {
+    "research": [
+      "2021-03-10",
+      "2024-06-22"
+    ],
+    "validation": [
+      "2024-06-23",
+      "2025-07-27"
+    ],
+    "out_of_sample": [
+      "2025-07-28",
+      "2026-09-01"
+    ]
+  },
+  "grid": {
+    "definition": {
+      "hedge_bull": [
+        "0.10",
+        "0.20"
+      ],
+      "hedge_neutral": [
+        "0.30",
+        "0.45",
+        "0.60"
+      ],
+      "hedge_bear": [
+        "0.70",
+        "0.85"
+      ],
+      "regime_confirm_bars": [
+        "2",
+        "5",
+        "10"
+      ],
+      "slope_lookback": [
+        "5",
+        "10"
+      ]
+    },
+    "objective": "Composite objective (documented in docs/backtest_methodology.md):\n\n    0.5 · CAGR_BTC + 0.5 · (CAGR_USD − HODL_CAGR_USD) − 0.25 · max(0, MDD_HODL_USD − MDD_USD)\n\n    i.e. reward BTC growth and USD performance relative to HODL equally, penalise a USD drawdown\n    worse than HODL. NaNs score −inf.\n    ",
+    "research_best": {
+      "hedge_bull": "0.10",
+      "hedge_neutral": "0.60",
+      "hedge_bear": "0.85",
+      "regime_confirm_bars": "5",
+      "slope_lookback": "10"
+    },
+    "research_best_row": {
+      "hedge_bull": "0.10",
+      "hedge_neutral": "0.60",
+      "hedge_bear": "0.85",
+      "regime_confirm_bars": "5",
+      "slope_lookback": "10",
+      "score": 0.14906532464615552,
+      "final_btc": 1.56325354207702,
+      "cagr_btc": 0.1455354443335375,
+      "cagr_usd": 0.2011040796014114,
+      "hodl_cagr_usd": 0.04850887464263787,
+      "excess_vs_hodl_usd_pct": 0.5632535420770199,
+      "max_drawdown_usd": -0.4118324631887589,
+      "hodl_max_drawdown_usd": -0.7671215666335087,
+      "total_trades": 107,
+      "total_fees_btc": -0.012085018049780042,
+      "total_funding_btc": 0.10956351129040333,
+      "verdict": "PASS",
+      "neighbour_score": 0.09225156760981808,
+      "plateau_score": 0.12065844612798679
+    }
+  },
+  "walk_forward": {
+    "adaptive_oos_btc_growth": -0.44919703301499037,
+    "adaptive_oos_usd_growth": 1.134796247371638,
+    "reference_oos_btc_growth": -0.3518324941436447,
+    "reference_oos_usd_growth": 1.5121606855978302,
+    "hodl_oos_usd_growth": 2.875789302764843,
+    "folds": 7,
+    "adaptive_folds_btc_positive": 1,
+    "adaptive_folds_beat_hodl_usd": 1,
+    "adaptive_mean_excess_vs_hodl_usd": -0.06449817261043682,
+    "adaptive_mean_btc_growth": -0.06449817261043687,
+    "reference_v1_folds_btc_positive": 1,
+    "reference_v1_folds_beat_hodl_usd": 1,
+    "reference_v1_mean_excess_vs_hodl_usd": -0.047182545303054116,
+    "reference_v1_mean_btc_growth": -0.04718254530305418,
+    "hodl_folds_btc_positive": 0,
+    "hodl_folds_beat_hodl_usd": 0,
+    "hodl_mean_excess_vs_hodl_usd": 0.0,
+    "hodl_mean_btc_growth": 0.0,
+    "fixed_hedge_50_folds_btc_positive": 2,
+    "fixed_hedge_50_folds_beat_hodl_usd": 2,
+    "fixed_hedge_50_mean_excess_vs_hodl_usd": -0.04590425179814465,
+    "fixed_hedge_50_mean_btc_growth": -0.04590425179814466
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "train_start": "2021-03-10",
+      "train_end": "2023-03-10",
+      "test_start": "2023-03-11",
+      "test_end": "2023-09-06",
+      "param_hedge_bull": "0.20",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.85",
+      "param_regime_confirm_bars": "2",
+      "param_slope_lookback": "5",
+      "train_score": 0.33961489274946605,
+      "train_plateau_score": 0.3236115674217298,
+      "test_score_adaptive": -0.2651821243162432,
+      "test_score_reference": -0.2531624503277135
+    },
+    {
+      "fold": 1,
+      "train_start": "2021-09-06",
+      "train_end": "2023-09-06",
+      "test_start": "2023-09-07",
+      "test_end": "2024-03-04",
+      "param_hedge_bull": "0.20",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.85",
+      "param_regime_confirm_bars": "10",
+      "param_slope_lookback": "10",
+      "train_score": 0.30443767768150765,
+      "train_plateau_score": 0.2928805088492908,
+      "test_score_adaptive": -2.4184432572164267,
+      "test_score_reference": -1.548846735407587
+    },
+    {
+      "fold": 2,
+      "train_start": "2022-03-05",
+      "train_end": "2024-03-04",
+      "test_start": "2024-03-05",
+      "test_end": "2024-08-31",
+      "param_hedge_bull": "0.10",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.85",
+      "param_regime_confirm_bars": "10",
+      "param_slope_lookback": "5",
+      "train_score": 0.09075849396730373,
+      "train_plateau_score": 0.06811672262365581,
+      "test_score_adaptive": -0.09138066621331406,
+      "test_score_reference": -0.17721448512219362
+    },
+    {
+      "fold": 3,
+      "train_start": "2022-09-01",
+      "train_end": "2024-08-31",
+      "test_start": "2024-09-01",
+      "test_end": "2025-02-27",
+      "param_hedge_bull": "0.10",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.70",
+      "param_regime_confirm_bars": "5",
+      "param_slope_lookback": "10",
+      "train_score": -0.18886685992328234,
+      "train_plateau_score": -0.22164856427878613,
+      "test_score_adaptive": -0.1079803584049589,
+      "test_score_reference": -0.23394799087955076
+    },
+    {
+      "fold": 4,
+      "train_start": "2023-02-28",
+      "train_end": "2025-02-27",
+      "test_start": "2025-02-28",
+      "test_end": "2025-08-26",
+      "param_hedge_bull": "0.10",
+      "param_hedge_neutral": "0.45",
+      "param_hedge_bear": "0.70",
+      "param_regime_confirm_bars": "5",
+      "param_slope_lookback": "10",
+      "train_score": -0.1677949843277704,
+      "train_plateau_score": -0.19659121718128192,
+      "test_score_adaptive": -0.295182639859794,
+      "test_score_reference": -0.2290784964831909
+    },
+    {
+      "fold": 5,
+      "train_start": "2023-08-27",
+      "train_end": "2025-08-26",
+      "test_start": "2025-08-27",
+      "test_end": "2026-02-22",
+      "param_hedge_bull": "0.10",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.70",
+      "param_regime_confirm_bars": "5",
+      "param_slope_lookback": "10",
+      "train_score": -0.22735094534843683,
+      "train_plateau_score": -0.256101872593975,
+      "test_score_adaptive": 0.5067835900957242,
+      "test_score_reference": 0.5910415129197097
+    },
+    {
+      "fold": 6,
+      "train_start": "2024-02-23",
+      "train_end": "2026-02-22",
+      "test_start": "2026-02-23",
+      "test_end": "2026-08-21",
+      "param_hedge_bull": "0.20",
+      "param_hedge_neutral": "0.60",
+      "param_hedge_bear": "0.70",
+      "param_regime_confirm_bars": "5",
+      "param_slope_lookback": "10",
+      "train_score": 0.07739593285311652,
+      "train_plateau_score": 0.05684770907400426,
+      "test_score_adaptive": -0.2535062022255643,
+      "test_score_reference": -0.2604368809246672
+    }
+  ],
+  "config_sha256": "4f4dd4af078ebf06cd365f5e3400f866d1d3584ff2bb0a3d83da5fd68ac266df"
+}

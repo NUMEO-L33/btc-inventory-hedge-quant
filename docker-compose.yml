@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: biq
+      POSTGRES_PASSWORD: biq
+      POSTGRES_DB: biq
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backtest:
+    build: .
+    command: ["backtest", "--config", "configs/backtest.yaml"]
+    volumes:
+      - ./reports:/app/reports
+      - ./data:/app/data
+    profiles: ["tools"]
+
+  shadow:
+    build: .
+    command: ["shadow", "--config", "configs/shadow.yaml"]
+    env_file: [.env]
+    environment:
+      BIQ_DATABASE_URL: sqlite:///state/shadow.sqlite3
+    volumes:
+      - ./state:/app/state
+    restart: unless-stopped
+
+  testnet:
+    build: .
+    command: ["testnet", "--config", "configs/testnet.yaml"]
+    env_file: [.env]
+    volumes:
+      - ./state:/app/state
+    restart: unless-stopped
+    profiles: ["testnet"]
+
+  live:
+    build: .
+    # Real orders still require env BIQ_ENABLE_LIVE_TRADING=true + live.yaml flag + acknowledgement.
+    command: ["live", "--config", "configs/live.yaml", "--confirm-live"]
+    env_file: [.env]
+    environment:
+      BIQ_DATABASE_URL: postgresql+psycopg://biq:biq@postgres:5432/biq
+    volumes:
+      - ./state:/app/state
+      - ./configs/live.yaml:/app/configs/live.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["live"]
+
+volumes:
+  pgdata:
