@@ -97,15 +97,23 @@ class InversePosition:
 
     # --- fills -------------------------------------------------------------
     def apply_fill(
-        self, side: OrderSide, qty: Decimal, price: Decimal, fee_rate: Decimal
+        self,
+        side: OrderSide,
+        qty: Decimal,
+        price: Decimal,
+        fee_rate: Decimal,
+        fee_btc: Decimal | None = None,
     ) -> FillResult:
-        """Apply a fill and return realised PnL / fee. Quantities are unsigned contract counts."""
+        """Apply a fill and return realised PnL / fee. Quantities are unsigned contract counts.
+
+        ``fee_btc`` overrides the rate-based fee with the exchange-reported commission.
+        """
         if qty <= ZERO:
             raise InverseMathError("fill qty must be positive")
         if price <= ZERO:
             raise InverseMathError("fill price must be positive")
         cv = self.spec.contract_value_usd
-        fee = trading_fee_btc(qty, cv, price, fee_rate)
+        fee = trading_fee_btc(qty, cv, price, fee_rate) if fee_btc is None else fee_btc
         signed_delta = -qty if side is OrderSide.SELL else qty
 
         if not self.allow_long:

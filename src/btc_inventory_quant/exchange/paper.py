@@ -554,3 +554,128 @@ class PaperExchange:
             self.position.apply_fill(OrderSide.SELL, -contracts_signed, entry_price, Decimal("0"))
         elif contracts_signed > 0:
             raise ExchangeError("paper exchange never holds longs")
+
+
+class ReplayMarketData:
+    """MarketDataProvider that replays a :class:`DailyDataset` day by day (offline shadow / tests).
+
+    ``cursor`` is the index of the *execution day*: klines returned are the completed candles up to
+    ``cursor − 1`` plus the (in-progress) candle ``cursor``; the mark price is the day's mark open —
+    exactly what the live loop sees a few minutes after the daily close.
+    """
+
+    def __init__(self, dataset: Any, spec: ContractSpec, funding: Any | None = None) -> None:
+        from btc_inventory_quant.data.market_data import DailyDataset
+
+        assert isinstance(dataset, DailyDataset)
+        self.dataset = dataset
+        self.spec = spec
+        self.funding = funding
+        self.cursor = 0
+        self._rows = self._to_rows(dataset.frame)
+
+    @staticmethod
+    def _to_rows(frame: Any) -> list[list[Any]]:
+        rows = []
+        for ts, r in frame.iterrows():
+            open_ms = int(ts.timestamp() * 1000)
+            rows.append(
+                [
+                    open_ms,
+                    r["open_dec"],
+                    f"{r['high']:.1f}",
+                    f"{r['low']:.1f}",
+                    r["close_dec"],
+                    f"{r['volume']:.0f}",
+                    open_ms + 86_400_000 - 1,
+                    "0",
+                    0,
+                    "0",
+                    "0",
+                    "0",
+                ]
+            )
+        return rows
+
+    @property
+    def now(self) -> datetime:
+        ts: datetime = self.dataset.frame.index[self.cursor].to_pydatetime()
+        return ts.replace(minute=5)
+
+    def advance(self) -> None:
+        self.cursor += 1
+
+    def ping(self) -> bool:
+        return True
+
+    def server_time_ms(self) -> int:
+        return int(self.now.timestamp() * 1000)
+
+    def sync_time(self) -> int:
+        return 0
+
+    def exchange_info(self) -> dict[str, Any]:
+        return {"serverTime": self.server_time_ms(), "symbols": []}
+
+    def contract_spec(self, symbol: str) -> ContractSpec:
+        return self.spec
+
+    def klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+        limit: int = 500,
+    ) -> list[list[Any]]:
+        rows = self._rows[: self.cursor + 1]
+        return rows[-limit:]
+
+    def mark_price_klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+        limit: int = 500,
+    ) -> list[list[Any]]:
+        return self.klines(symbol, interval, start_ms, end_ms, limit)
+
+    def index_price_klines(
+        self,
+        pair: str,
+        interval: str,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+        limit: int = 500,
+    ) -> list[list[Any]]:
+        return self.klines(pair, interval, start_ms, end_ms, limit)
+
+    def funding_rate_history(
+        self, symbol: str, start_ms: int | None = None, end_ms: int | None = None, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def premium_index(self, symbol: str) -> MarkPriceInfo:
+        ts = self.dataset.frame.index[self.cursor]
+        mark = self.dataset.dec(ts, "mark_open")
+        return MarkPriceInfo(
+            symbol=symbol,
+            mark_price=mark,
+            index_price=mark,
+            last_funding_rate=Decimal("0.0001"),
+            next_funding_time=None,
+            time=self.now,
+        )
+
+    def book_ticker(self, symbol: str) -> BookTicker:
+        mark = self.premium_index(symbol).mark_price
+        tick = self.spec.price_tick
+        return BookTicker(
+            symbol=symbol,
+            bid_price=mark - tick,
+            bid_qty=Decimal(1000),
+            ask_price=mark + tick,
+            ask_qty=Decimal(1000),
+            time=self.now,
+        )

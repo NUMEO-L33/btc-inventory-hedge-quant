@@ -107,8 +107,9 @@ class Portfolio:
         ts: datetime,
         ref_id: str = "",
         reference_price: Decimal | None = None,
+        fee_btc: Decimal | None = None,
     ) -> FillResult:
-        result = self.position.apply_fill(side, qty, price, fee_rate)
+        result = self.position.apply_fill(side, qty, price, fee_rate, fee_btc=fee_btc)
         if result.realized_pnl_btc != ZERO:
             self.wallet_balance_btc += result.realized_pnl_btc
             self.ledger.append(

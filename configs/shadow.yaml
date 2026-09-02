@@ -1,0 +1,43 @@
+# Shadow mode: REAL public market data from Binance COIN-M, SIMULATED account. No real orders are possible.
+mode: shadow
+
+strategy:
+  name: regime_hedge_v1
+
+risk:
+  max_hedge_ratio: "0.85"
+  max_daily_hedge_change: "0.20"
+  min_rebalance_diff: "0.10"
+
+data:
+  exchange_info_path: data/raw/exchange_info.json
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+
+backtest:                      # cost parameters reused by the paper exchange
+  warmup_bars: 210
+  cost:
+    taker_fee_rate: "0.0005"
+    maker_fee_rate: "0.0002"
+    slippage_bps: "5"
+
+exchange:
+  name: paper
+  environment: demo            # not used by the paper account; public data comes from production endpoints
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+  paper_initial_btc: "1"
+  recv_window_ms: 5000
+  request_timeout_seconds: 10
+
+execution:
+  policy: market
+  decision_time_utc: "00:05"
+  poll_interval_seconds: 60
+  client_order_id_prefix: biq
+
+storage:
+  database_url: sqlite:///state/shadow.sqlite3
+
+monitoring:
+  alert_channels: [log]

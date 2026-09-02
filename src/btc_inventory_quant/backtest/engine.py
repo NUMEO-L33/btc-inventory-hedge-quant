@@ -31,11 +31,8 @@ from btc_inventory_quant.data.funding_data import FundingCalendar
 from btc_inventory_quant.data.market_data import DailyDataset
 from btc_inventory_quant.domain.inverse_contract import ZERO, ContractSpec, OrderSide
 from btc_inventory_quant.domain.portfolio import Portfolio
-from btc_inventory_quant.risk.limits import (
-    RiskLimitViolation,
-    resolve_hedge_target,
-    validate_order_against_position,
-)
+from btc_inventory_quant.execution.rebalancer import Rebalancer
+from btc_inventory_quant.risk.limits import RiskLimitViolation, validate_order_against_position
 from btc_inventory_quant.strategy.base import Strategy
 
 
@@ -117,6 +114,9 @@ class BacktestEngine:
 
         exec_model = ExecutionModel(self.cost, self.spec, self.seed)
         funding_model = FundingModel(self.funding_calendar, self.cost)
+        rebalancer = Rebalancer(
+            self.spec, self.limits, bypass_cap=self.strategy.bypass_max_hedge_cap
+        )
         t_open = idx[j0].to_pydatetime()
         pf = Portfolio.open(self.spec, self.initial_btc, t_open)
 
@@ -157,30 +157,31 @@ class BacktestEngine:
             forced = bool(pending)
             missed = False
             if raw_dec is not None:
-                decision = resolve_hedge_target(
-                    current_ratio,
+                rplan = rebalancer.plan(
                     raw_dec,
-                    self.limits,
-                    bypass_cap=self.strategy.bypass_max_hedge_cap,
+                    current_ratio,
+                    pf.position.short_contracts,
+                    equity_btc,
+                    mark_open,
+                    force=forced,
+                    reason="reorder" if forced else "rebalance",
                 )
-                do_rebalance = decision.rebalance or forced
-                decision_target = decision.capped_target_ratio if do_rebalance else current_ratio
-                if do_rebalance:
-                    target_c = pf.target_contracts(mark_open, decision.capped_target_ratio)
-                    delta = target_c - pf.position.short_contracts
-                    if delta != ZERO:
-                        if exec_model.next_rebalance_is_missed():
-                            missed = True
-                        else:
-                            side = OrderSide.SELL if delta > ZERO else OrderSide.BUY
-                            orders.append(
-                                PendingOrder(
-                                    side,
-                                    abs(delta),
-                                    "reorder" if forced else "rebalance",
-                                    decision.capped_target_ratio,
-                                )
+                do_rebalance = rplan.decision.rebalance or forced
+                decision_target = (
+                    rplan.decision.capped_target_ratio if do_rebalance else current_ratio
+                )
+                if rplan.intent is not None:
+                    if exec_model.next_rebalance_is_missed():
+                        missed = True
+                    else:
+                        orders.append(
+                            PendingOrder(
+                                rplan.intent.side,
+                                rplan.intent.qty,
+                                rplan.intent.reason,
+                                rplan.intent.target_ratio,
                             )
+                        )
             pending = []
 
             # 5) execution at the open of day j

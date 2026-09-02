@@ -1,0 +1,45 @@
+# Testnet / demo mode: Binance COIN-M demo environment (https://demo-dapi.binance.com), demo API keys.
+# Demo reachability and key procedure are PARTIAL in the official docs — run `python -m btc_inventory_quant testnet --once`
+# and check the startup report before leaving it unattended.
+mode: testnet
+
+strategy:
+  name: regime_hedge_v1
+
+risk:
+  max_hedge_ratio: "0.85"
+  max_daily_hedge_change: "0.20"
+  min_rebalance_diff: "0.10"
+
+data:
+  exchange_info_path: data/raw/exchange_info.json
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+
+backtest:
+  warmup_bars: 210
+
+exchange:
+  name: binance_coinm
+  environment: demo
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+  expected_position_mode: ONE_WAY
+  expected_margin_type: CROSSED
+  expected_leverage: 1
+  recv_window_ms: 5000
+  request_timeout_seconds: 10
+  max_retries: 5
+
+execution:
+  policy: market
+  decision_time_utc: "00:05"
+  poll_interval_seconds: 60
+  order_timeout_seconds: 30
+  client_order_id_prefix: biq
+
+storage:
+  database_url: sqlite:///state/testnet.sqlite3
+
+monitoring:
+  alert_channels: [log]

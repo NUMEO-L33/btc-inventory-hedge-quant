@@ -67,6 +67,7 @@ ignore = [
 "tests/**" = ["PLR", "T20", "S101"]
 "scripts/**" = ["T20"]
 "src/btc_inventory_quant/cli/**" = ["T20"]
+"src/btc_inventory_quant/runtime/app.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.12"

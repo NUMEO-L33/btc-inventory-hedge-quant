@@ -195,6 +195,7 @@ class ExchangeConfig(StrictModel):
     expected_position_mode: Literal["ONE_WAY"] = "ONE_WAY"
     expected_margin_type: Literal["CROSSED", "ISOLATED"] = "CROSSED"
     expected_leverage: int = Field(1, ge=1, le=5)
+    paper_initial_btc: Decimal = Field(Decimal("1"), gt=0)  # shadow-mode simulated account size
     max_retries: int = Field(5, ge=0)
     backoff_base_seconds: float = Field(0.5, gt=0)
     backoff_max_seconds: float = Field(30.0, gt=0)

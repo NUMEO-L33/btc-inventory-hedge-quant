@@ -140,7 +140,14 @@ def cmd_run_mode(args: argparse.Namespace) -> int:
 def cmd_ops(args: argparse.Namespace) -> int:
     from btc_inventory_quant.runtime.app import ops_command
 
-    return int(ops_command(args.command, config_path=args.config))
+    return int(
+        ops_command(
+            args.command,
+            config_path=args.config,
+            release=getattr(args, "release", False),
+            ack=getattr(args, "ack", "") or "",
+        )
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -197,6 +204,15 @@ def build_parser() -> argparse.ArgumentParser:
     for op in ("status", "reconcile", "safe-hold"):
         o = sub.add_parser(op)
         o.add_argument("--config", default="configs/shadow.yaml")
+        if op == "safe-hold":
+            o.add_argument(
+                "--release", action="store_true", help="release SAFE_HOLD (requires --ack)"
+            )
+            o.add_argument(
+                "--ack",
+                default="",
+                help="acknowledgement string (must equal live.expected_acknowledgement)",
+            )
         o.set_defaults(func=cmd_ops)
     return p
 

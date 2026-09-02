@@ -1,0 +1,63 @@
+# LIVE TEMPLATE — copy to configs/live.yaml (git-ignored) and edit deliberately.
+# Real orders are sent ONLY if ALL of the following hold at runtime:
+#   env BIQ_ENABLE_LIVE_TRADING=true, live.live_trading_enabled: true, CLI --confirm-live,
+#   BIQ_LIVE_ACKNOWLEDGEMENT == live.acknowledgement == live.expected_acknowledgement,
+#   API key present + permissions OK, time synced, position consistent, no unconfirmed orders,
+#   hedge ratio within limits, fresh market data, contract spec verified, ONE_WAY position mode,
+#   equity <= live.max_initial_equity_btc (small-size guard).
+mode: live
+
+strategy:
+  name: regime_hedge_v1
+
+risk:
+  max_hedge_ratio: "0.85"
+  min_hedge_ratio: "0.00"
+  max_daily_hedge_change: "0.20"
+  min_rebalance_diff: "0.10"
+  max_effective_leverage: "1.0"
+  max_short_notional_to_equity: "1.0"
+  stale_price_max_age_seconds: 120
+  stale_mark_max_age_seconds: 120
+  max_consecutive_order_rejects: 3
+  max_clock_skew_ms: 1000
+
+data:
+  exchange_info_path: data/raw/exchange_info.json
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+
+backtest:
+  warmup_bars: 210
+
+exchange:
+  name: binance_coinm
+  environment: production
+  symbol: BTCUSD_PERP
+  pair: BTCUSD
+  expected_position_mode: ONE_WAY
+  expected_margin_type: CROSSED
+  expected_leverage: 1
+  recv_window_ms: 5000
+  request_timeout_seconds: 10
+  max_retries: 5
+
+execution:
+  policy: market                 # conservative default for the first small runs
+  decision_time_utc: "00:05"
+  poll_interval_seconds: 30
+  order_timeout_seconds: 30
+  client_order_id_prefix: biq
+
+storage:
+  database_url: postgresql+psycopg://biq:biq@localhost:5432/biq   # or sqlite:///state/live.sqlite3
+
+monitoring:
+  alert_channels: [log, telegram]
+
+live:
+  live_trading_enabled: false    # flip to true only after shadow + testnet sign-off
+  acknowledgement: ""            # must equal expected_acknowledgement AND env BIQ_LIVE_ACKNOWLEDGEMENT
+  expected_acknowledgement: I_ACCEPT_COIN_M_TRADING_RISK
+  max_initial_equity_btc: "0.05"
+  require_dedicated_subaccount_ack: true
