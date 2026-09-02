@@ -147,4 +147,5 @@ def test_cli_backtest_costs_reduce_final_btc_on_real_data(tmp_path: Path) -> Non
 
 def test_cli_data_quality_and_verify() -> None:
     assert main(["data", "--raw-dir", str(RAW), "verify"]) == 0
+    assert main(["data", "verify", "--raw-dir", str(RAW)]) == 0
     assert main(["data", "--raw-dir", str(RAW), "--as-of", AS_OF, "quality"]) == 0

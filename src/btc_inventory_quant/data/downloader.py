@@ -11,7 +11,7 @@ verified with the same checksum scheme).
 
 Usage::
 
-    python -m btc_inventory_quant data download --raw-dir data/raw --symbol BTCUSD_PERP
+    python -m btc_inventory_quant data --raw-dir data/raw download --symbol BTCUSD_PERP
 """
 
 from __future__ import annotations

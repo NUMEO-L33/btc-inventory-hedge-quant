@@ -101,11 +101,33 @@ def test_cli_parser_exposes_all_commands() -> None:
         parser.parse_args(["unknown"])
 
 
+def test_cli_options_accepted_before_and_after_subcommand() -> None:
+    parser = build_parser()
+    before = parser.parse_args(["data", "--raw-dir", "X", "--symbol", "ETHUSD_PERP", "download"])
+    after = parser.parse_args(["data", "download", "--raw-dir", "X", "--symbol", "ETHUSD_PERP"])
+    assert before.raw_dir == after.raw_dir == "X"
+    assert before.symbol == after.symbol == "ETHUSD_PERP"
+    assert before.data_cmd == after.data_cmd == "download"
+    assert parser.parse_args(["data", "verify"]).raw_dir == "data/raw"  # default survives
+    assert parser.parse_args(["data", "download", "--include-8h-mark"]).include_8h_mark is True
+    assert parser.parse_args(["data", "download"]).include_8h_mark is False
+    r_before = parser.parse_args(
+        ["research", "--config", "c.yaml", "walk-forward", "--max-grid", "4"]
+    )
+    r_after = parser.parse_args(
+        ["research", "walk-forward", "--config", "c.yaml", "--max-grid", "4"]
+    )
+    assert r_before.config == r_after.config == "c.yaml"
+    assert r_before.max_grid == r_after.max_grid == 4
+    assert main(["research", "walk-forward"]) == 2  # --config still required, with a clear message
+
+
 def test_cli_data_verify_on_real_snapshot() -> None:
     raw = Path(__file__).parents[2] / "data" / "raw"
     if not (raw / "manifest.json").exists():
         pytest.skip("raw snapshot not present")
     assert main(["data", "--raw-dir", str(raw), "verify"]) == 0
+    assert main(["data", "verify", "--raw-dir", str(raw)]) == 0
 
 
 def test_logging_masks_secrets() -> None:

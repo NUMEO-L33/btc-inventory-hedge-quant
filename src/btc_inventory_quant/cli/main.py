@@ -3,8 +3,8 @@
 python -m btc_inventory_quant backtest --config configs/backtest.yaml
 python -m btc_inventory_quant research walk-forward --config configs/backtest.yaml
 python -m btc_inventory_quant research sensitivity --config configs/backtest.yaml
-python -m btc_inventory_quant data download --raw-dir data/raw
-python -m btc_inventory_quant data verify --raw-dir data/raw
+python -m btc_inventory_quant data --raw-dir data/raw download
+python -m btc_inventory_quant data --raw-dir data/raw verify
 python -m btc_inventory_quant shadow --config configs/shadow.yaml
 python -m btc_inventory_quant testnet --config configs/testnet.yaml
 python -m btc_inventory_quant live --config configs/live.yaml --confirm-live
@@ -18,6 +18,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from btc_inventory_quant import __version__
 from btc_inventory_quant.config.loader import build_run_metadata, load_config
@@ -70,6 +71,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 def cmd_research(args: argparse.Namespace) -> int:
     from btc_inventory_quant.backtest.walkforward import run_walk_forward_study
 
+    if not args.config:
+        print("error: --config is required (e.g. --config configs/backtest.yaml)", file=sys.stderr)
+        return 2
     config = load_config(args.config)
     metadata = build_run_metadata(config, args.config, run_name="research")
     if args.research_cmd == "walk-forward":
@@ -150,6 +154,36 @@ def cmd_ops(args: argparse.Namespace) -> int:
     )
 
 
+def _opt_kwargs(suppress: bool, **kwargs: Any) -> dict[str, Any]:
+    """Options are accepted both before and after the sub-command.
+
+    The sub-parser copy uses ``argparse.SUPPRESS`` as its default so that, when the flag is not
+    repeated there, argparse leaves the attribute unset and the value parsed by the parent
+    survives (see CPython's ``_SubParsersAction.__call__``).
+    """
+    if suppress:
+        kwargs["default"] = argparse.SUPPRESS
+        kwargs.pop("required", None)
+    return kwargs
+
+
+def _add_research_options(p: argparse.ArgumentParser, suppress: bool = False) -> None:
+    # not argparse-required: it may be given after the sub-command, so it is checked in cmd_research
+    p.add_argument("--config", **_opt_kwargs(suppress, default=None))
+    p.add_argument("--out", **_opt_kwargs(suppress, default=None))
+    p.add_argument("--as-of", **_opt_kwargs(suppress, default=None))
+    p.add_argument("--max-grid", type=int, **_opt_kwargs(suppress, default=None))
+
+
+def _add_data_options(p: argparse.ArgumentParser, suppress: bool = False) -> None:
+    p.add_argument("--raw-dir", **_opt_kwargs(suppress, default="data/raw"))
+    p.add_argument("--symbol", **_opt_kwargs(suppress, default="BTCUSD_PERP"))
+    p.add_argument("--pair", **_opt_kwargs(suppress, default="BTCUSD"))
+    p.add_argument("--base-url", **_opt_kwargs(suppress, default="https://dapi.binance.com"))
+    p.add_argument("--include-8h-mark", action="store_true", **_opt_kwargs(suppress, default=False))
+    p.add_argument("--as-of", **_opt_kwargs(suppress, default=None))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="btc_inventory_quant", description="BTC Inventory Hedge Quant")
     p.add_argument("--version", action="version", version=__version__)
@@ -166,26 +200,17 @@ def build_parser() -> argparse.ArgumentParser:
     bt.set_defaults(func=cmd_backtest)
 
     rs = sub.add_parser("research", help="walk-forward / sensitivity studies")
-    rs.add_argument("--config", required=True)
-    rs.add_argument("--out", default=None)
-    rs.add_argument("--as-of", default=None)
-    rs.add_argument("--max-grid", type=int, default=None)
+    _add_research_options(rs)
     rs_sub = rs.add_subparsers(dest="research_cmd", required=True)
-    rs_sub.add_parser("walk-forward")
-    rs_sub.add_parser("sensitivity")
+    for name in ("walk-forward", "sensitivity"):
+        _add_research_options(rs_sub.add_parser(name), suppress=True)
     rs.set_defaults(func=cmd_research)
 
     dt = sub.add_parser("data", help="download / verify public market data")
-    dt.add_argument("--raw-dir", default="data/raw")
-    dt.add_argument("--symbol", default="BTCUSD_PERP")
-    dt.add_argument("--pair", default="BTCUSD")
-    dt.add_argument("--base-url", default="https://dapi.binance.com")
-    dt.add_argument("--include-8h-mark", action="store_true")
-    dt.add_argument("--as-of", default=None)
+    _add_data_options(dt)
     dt_sub = dt.add_subparsers(dest="data_cmd", required=True)
-    dt_sub.add_parser("download")
-    dt_sub.add_parser("verify")
-    dt_sub.add_parser("quality")
+    for name in ("download", "verify", "quality"):
+        _add_data_options(dt_sub.add_parser(name), suppress=True)
     dt.set_defaults(func=cmd_data)
 
     for mode in ("shadow", "testnet", "live"):

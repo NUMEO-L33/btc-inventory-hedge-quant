@@ -23,8 +23,8 @@ python -m btc_inventory_quant research --config configs/backtest.yaml sensitivit
 
 데이터 갱신(Binance 접속 가능한 머신에서):
 ```bash
-python -m btc_inventory_quant data download --raw-dir data/raw          # 전체 재수집 + manifest(sha256)
-python -m btc_inventory_quant data download --raw-dir data/raw --include-8h-mark   # 펀딩 시각 마크가격 정밀화(선택)
+python -m btc_inventory_quant data --raw-dir data/raw download          # 전체 재수집 + manifest(sha256)
+python -m btc_inventory_quant data --raw-dir data/raw download --include-8h-mark   # 펀딩 시각 마크가격 정밀화(선택)
 ```
 
 ## 2. Shadow (실데이터 + 가상계좌, 실주문 불가)

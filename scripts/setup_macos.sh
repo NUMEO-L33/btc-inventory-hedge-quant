@@ -34,7 +34,7 @@ fi
 mkdir -p state reports
 
 echo "==> Verifying the committed data snapshot"
-python -m btc_inventory_quant data verify --raw-dir data/raw
+python -m btc_inventory_quant data --raw-dir data/raw verify
 
 echo "==> Running the test suite"
 python -m pytest -q
@@ -44,7 +44,7 @@ cat <<'MSG'
 Setup complete. Next:
   source .venv/bin/activate
   python -m btc_inventory_quant backtest --config configs/backtest.yaml      # reports/<run_id>/backtest_report.md
-  python -m btc_inventory_quant data download --raw-dir data/raw             # refresh data (needs Binance access)
+  python -m btc_inventory_quant data --raw-dir data/raw download             # refresh data (needs Binance access)
   python -m btc_inventory_quant testnet --config configs/testnet.yaml --once # after demo API keys are in .env
   python -m btc_inventory_quant shadow --config configs/shadow.yaml          # paper account, real data, no real orders
 MSG

@@ -61,6 +61,8 @@ python -m btc_inventory_quant backtest --config configs/backtest.yaml
 python -m btc_inventory_quant research --config configs/backtest.yaml walk-forward
 ```
 
+옵션은 하위 명령 앞/뒤 어느 쪽에 써도 됩니다(`data --raw-dir X verify` = `data verify --raw-dir X`).
+
 전략 파라미터·리스크 한도·비용은 **설정 파일만** 바꾸면 됩니다(`configs/backtest.yaml`).
 
 ## 4. 운영 모드
