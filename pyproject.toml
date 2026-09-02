@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "btc-inventory-quant"
+version = "0.1.0"
+description = "BTC Inventory Hedge Quant - dynamic COIN-M inverse perpetual hedge ratio management for long-term BTC holders"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "NUMEO" }]
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "websockets>=12.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pandas-stubs",
+    "types-PyYAML",
+]
+
+[project.scripts]
+btc-inventory-quant = "btc_inventory_quant.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/btc_inventory_quant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:btc_inventory_quant.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W", "SIM", "RUF", "PL", "T20"]
+ignore = [
+    "PLR0913", # many arguments are natural for financial functions
+    "PLR2004", # magic values in tests/finance formulas
+    "PLR0912", "PLR0915", "PLR0911", "PLR0917", "PLR0914", # complexity: engines have long loops
+    "N818", # exception naming: RiskLimitViolation is a domain term
+    "PLC0415", # local imports are used deliberately to avoid cycles
+    "RUF001", "RUF002", "RUF003", # Korean docs/comments
+    "E501", # line length handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR", "T20", "S101"]
+"scripts/**" = ["T20"]
+"src/btc_inventory_quant/cli/**" = ["T20"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+disallow_any_generics = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["btc_inventory_quant"]
+
+[[tool.mypy.overrides]]
+module = ["matplotlib.*", "pandas.*", "numpy.*", "yaml.*", "websockets.*", "alembic.*"]
+ignore_missing_imports = true

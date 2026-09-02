@@ -1,0 +1,96 @@
+{
+ "source": "GET /dapi/v1/exchangeInfo snapshot 2026-09-02T05:09Z (data/raw/exchange_info.json)",
+ "symbol": {
+  "symbol": "BTCUSD_PERP",
+  "pair": "BTCUSD",
+  "contractType": "PERPETUAL",
+  "deliveryDate": 4133404800000,
+  "onboardDate": 1597042800000,
+  "contractStatus": "TRADING",
+  "maintMarginPercent": "2.5000",
+  "requiredMarginPercent": "5.0000",
+  "baseAsset": "BTC",
+  "quoteAsset": "USD",
+  "marginAsset": "BTC",
+  "pricePrecision": 1,
+  "quantityPrecision": 0,
+  "baseAssetPrecision": 8,
+  "quotePrecision": 8,
+  "underlyingType": "COIN",
+  "underlyingSubType": [
+   "PoW"
+  ],
+  "triggerProtect": "0.0500",
+  "liquidationFee": "0.015000",
+  "marketTakeBound": "0.05",
+  "maxMoveOrderLimit": 10000,
+  "contractSize": 100,
+  "equalQtyPrecision": 4,
+  "filters": [
+   {
+    "tickSize": "0.1",
+    "maxPrice": "4520958",
+    "minPrice": "1000",
+    "filterType": "PRICE_FILTER"
+   },
+   {
+    "maxQty": "1000000",
+    "stepSize": "1",
+    "minQty": "1",
+    "filterType": "LOT_SIZE"
+   },
+   {
+    "minQty": "1",
+    "maxQty": "60000",
+    "filterType": "MARKET_LOT_SIZE",
+    "stepSize": "1"
+   },
+   {
+    "filterType": "MAX_NUM_ORDERS",
+    "limit": 200
+   },
+   {
+    "limit": 20,
+    "filterType": "MAX_NUM_ALGO_ORDERS"
+   },
+   {
+    "multiplierDecimal": "4",
+    "multiplierDown": "0.9500",
+    "filterType": "PERCENT_PRICE",
+    "multiplierUp": "1.0500"
+   }
+  ],
+  "orderTypes": [
+   "LIMIT",
+   "MARKET",
+   "STOP",
+   "STOP_MARKET",
+   "TAKE_PROFIT",
+   "TAKE_PROFIT_MARKET",
+   "TRAILING_STOP_MARKET"
+  ],
+  "timeInForce": [
+   "GTC",
+   "IOC",
+   "FOK",
+   "GTX"
+  ],
+  "permissionSets": [
+   "GRID"
+  ]
+ },
+ "rateLimits": [
+  {
+   "rateLimitType": "REQUEST_WEIGHT",
+   "interval": "MINUTE",
+   "intervalNum": 1,
+   "limit": 2400
+  },
+  {
+   "rateLimitType": "ORDERS",
+   "interval": "MINUTE",
+   "intervalNum": 1,
+   "limit": 1200
+  }
+ ]
+}

@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# runtime state
+state/
+*.db
+*.sqlite
+*.sqlite3
+logs/
+reports/*/
+!reports/.gitkeep
+
+# data (raw data is committed for reproducibility only for the initial verified snapshot)
+data/processed/
+data/cache/
+
+# OS
+.DS_Store
+Thumbs.db
