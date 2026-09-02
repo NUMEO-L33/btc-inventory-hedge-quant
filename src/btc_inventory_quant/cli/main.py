@@ -150,6 +150,8 @@ def cmd_ops(args: argparse.Namespace) -> int:
             config_path=args.config,
             release=getattr(args, "release", False),
             ack=getattr(args, "ack", "") or "",
+            window_hours=getattr(args, "window_hours", 48),
+            contracts=getattr(args, "contracts", "") or "",
         )
     )
 
@@ -226,9 +228,22 @@ def build_parser() -> argparse.ArgumentParser:
             )
         m.set_defaults(func=cmd_run_mode)
 
-    for op in ("status", "reconcile", "safe-hold"):
+    for op in ("status", "reconcile", "safe-hold", "verify-funding"):
         o = sub.add_parser(op)
         o.add_argument("--config", default="configs/shadow.yaml")
+        if op == "verify-funding":
+            o.add_argument(
+                "--window-hours",
+                type=int,
+                default=48,
+                help="how far back to look for settled FUNDING_FEE records",
+            )
+            o.add_argument(
+                "--contracts",
+                default="",
+                help="position size held during the window (signed; negative = short). "
+                "Omit to read the current exchange position, which assumes it never changed.",
+            )
         if op == "safe-hold":
             o.add_argument(
                 "--release", action="store_true", help="release SAFE_HOLD (requires --ack)"

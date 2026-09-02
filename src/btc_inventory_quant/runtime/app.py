@@ -304,7 +304,14 @@ def run_mode(
         return 1
 
 
-def ops_command(command: str, config_path: str, release: bool = False, ack: str = "") -> int:
+def ops_command(
+    command: str,
+    config_path: str,
+    release: bool = False,
+    ack: str = "",
+    window_hours: int = 48,
+    contracts: str = "",
+) -> int:
     config = load_config(config_path)
     settings = load_settings()
     db = Database(config.storage.database_url or settings.database_url)
@@ -351,6 +358,37 @@ def ops_command(command: str, config_path: str, release: bool = False, ack: str 
         except ExchangeError as exc:
             print(f"SAFE_HOLD engaged; cancel failed: {exc}")
         return 0
+    if command == "verify-funding":
+        from btc_inventory_quant.execution.funding_verification import verify_funding
+
+        components = build_components(config, settings, config.mode)
+        result = verify_funding(
+            components.exchange,
+            components.exchange.contract_spec(config.exchange.symbol),
+            config.exchange.symbol,
+            window_hours=window_hours,
+            contracts=Decimal(contracts) if contracts else None,
+        )
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        if result.verdict == "NO_DATA":
+            print(
+                "\nNo FUNDING_FEE settled in this window. Hold a position across 00:00/08:00/16:00 "
+                "UTC and re-run; widen with --window-hours if the settlement was longer ago."
+            )
+            return 2
+        if result.verdict == "VERIFIED":
+            print(
+                f"\nVERIFIED on {result.samples} settlement(s): the modelled funding amount matches "
+                "the exchange within tolerance. docs/inverse_math.md §6 PARTIAL is resolved — "
+                "update it and docs/exchange_api_verification.md with this run."
+            )
+            return 0
+        print(
+            f"\n{result.verdict}: the modelled amount does NOT match the exchange. The funding "
+            "formula or the mark-price source is wrong, and every backtest result that depends on "
+            "funding carry must be recomputed before it is trusted."
+        )
+        return 1
     if command == "reconcile":
         components = build_components(config, settings, config.mode)
         trader = build_trader(components, config.mode)

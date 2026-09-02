@@ -81,7 +81,7 @@ python -m btc_inventory_quant research --config configs/backtest.yaml walk-forwa
 | testnet | `testnet --config configs/testnet.yaml` | 데모 거래소 | 데모 주문 |
 | live | `live --config configs/live.yaml --confirm-live` | 실거래소 | **게이트 통과 시에만** |
 
-운영 명령: `status`, `reconcile`, `safe-hold [--release --ack I_ACCEPT_COIN_M_TRADING_RISK]`.
+운영 명령: `status`, `reconcile`, `verify-funding`, `safe-hold [--release --ack I_ACCEPT_COIN_M_TRADING_RISK]`.
 
 Live 게이트(전부 필요): `BIQ_ENABLE_LIVE_TRADING=true` · `live.live_trading_enabled: true` · `--confirm-live` · acknowledgement 3중 일치 · API 키/권한 · 시간 동기화 · 포지션 일치 · 미확인 주문 없음 · 헤지율 한도 · 시세 정상 · 계약사양 검증 · One-way 모드 · 소액 한도.
 
@@ -106,6 +106,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 | [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
 | [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |
 | [docs/operations_runbook.md](docs/operations_runbook.md) | 설치·백테스트·Shadow·Testnet·Live·점검 |
+| [docs/demo_verification_runbook.md](docs/demo_verification_runbook.md) | **Demo 접속 절차 + 펀딩 공식 검증** — 미검증 4건 해소 |
 | [docs/incident_response.md](docs/incident_response.md) | SAFE_HOLD 트리거·대응·재시작 복구 |
 | [docs/exchange_api_verification.md](docs/exchange_api_verification.md) | Binance COIN-M 공식 문서 검증(VERIFIED/PARTIAL/UNVERIFIED) |
 | [docs/requirements_audit.md](docs/requirements_audit.md) | 요구사항 21개 절 → 구현·테스트 추적 매트릭스, 감사 후 보강 내역 |

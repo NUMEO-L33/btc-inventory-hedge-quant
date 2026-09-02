@@ -42,7 +42,9 @@ python -m btc_inventory_quant status --config configs/shadow.yaml
 2. `.env` 에 `BIQ_BINANCE_DEMO_API_KEY/SECRET` 입력.
 3. 계정 설정: One-way 모드, BTCUSD_PERP Cross, 레버리지 1. **API 키는 출금 권한 없음·IP 화이트리스트를 거래소 UI에서 직접 확인**(COIN-M API 로는 출금 권한을 조회할 수 없음).
 4. `python -m btc_inventory_quant testnet --config configs/testnet.yaml --once` → 시작 보고서에서 `contract_spec`, `order_recovery`, `portfolio` 항목 확인.
-5. 상시 실행 후 `reconcile` 로 상태 일치 확인, `income(FUNDING_FEE)` 로 펀딩 공식 역검증 결과 확인(`docs/inverse_math.md` §6 PARTIAL 해소).
+5. 상시 실행 후 `reconcile` 로 상태 일치 확인.
+6. **펀딩 공식 검증(최우선)**: 정산 시각(00/08/16 UTC)을 넘긴 뒤 `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml`.
+   `verdict: VERIFIED` 면 `docs/inverse_math.md` §6 PARTIAL 해소. 상세 절차는 **[docs/demo_verification_runbook.md](demo_verification_runbook.md)**.
 
 ## 4. Live (소액)
 
