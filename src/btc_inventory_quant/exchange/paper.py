@@ -35,6 +35,7 @@ from btc_inventory_quant.exchange.models import (
     OrderStatus,
     OrderType,
     PositionMode,
+    TickerPrice,
     TimeInForce,
 )
 
@@ -154,6 +155,9 @@ class StaticMarketData:
             time=self.now(),
         )
 
+    def ticker_price(self, symbol: str) -> TickerPrice:
+        return TickerPrice(symbol=symbol, price=self.mark_price, time=self.now())
+
 
 class PaperExchange:
     """Simulated account on top of any :class:`MarketDataProvider`."""
@@ -197,6 +201,7 @@ class PaperExchange:
         self.rest_limit_orders: bool = True  # LIMIT GTX orders rest until fill_resting_orders()
         self.query_failures: int = 0  # raise ExchangeTimeout on the next N query_order calls
         self.listen_key = "paperlistenkey"
+        self._settled_funding_times: set[int] = set()
 
     # ------------------------------------------------------------ market data
     @property
@@ -232,6 +237,9 @@ class PaperExchange:
 
     def book_ticker(self, symbol: str) -> BookTicker:
         return self.market.book_ticker(symbol)
+
+    def ticker_price(self, symbol: str) -> TickerPrice:
+        return self.market.ticker_price(symbol)
 
     def mark_price(self) -> Decimal:
         return self.market.premium_index(self.symbol).mark_price
@@ -515,6 +523,30 @@ class PaperExchange:
             )
         return pay
 
+    def settle_funding(self, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """Shadow mode: apply the REAL funding history of the market provider to the paper account.
+
+        Each funding record (``fundingTime``, ``fundingRate``, optional ``markPrice``) is settled
+        exactly once (dedupe by fundingTime) on the position held at the time of the call — the
+        trader calls this at the start of every daily cycle, i.e. before that day's trade, which
+        matches the backtest timeline (00:00 event before the trade, 08:00/16:00 after it).
+        """
+        rows = self.market.funding_rate_history(self.symbol, start_ms=since_ms)
+        applied: list[dict[str, Any]] = []
+        for r in rows:
+            t = int(r["fundingTime"])
+            if t in self._settled_funding_times:
+                continue
+            if since_ms is not None and t < since_ms:
+                continue
+            rate = Decimal(str(r["fundingRate"]))
+            mp = r.get("markPrice")
+            mark = Decimal(str(mp)) if mp not in (None, "", "0") else None
+            pay = self.apply_funding(rate, mark)
+            self._settled_funding_times.add(t)
+            applied.append({"fundingTime": t, "rate": str(rate), "amount_btc": str(pay)})
+        return applied
+
     def external_transfer(self, amount_btc: Decimal) -> None:
         """Simulate an unexpected deposit (+) / withdrawal (−)."""
         self.wallet_balance += amount_btc
@@ -654,7 +686,28 @@ class ReplayMarketData:
     def funding_rate_history(
         self, symbol: str, start_ms: int | None = None, end_ms: int | None = None, limit: int = 1000
     ) -> list[dict[str, Any]]:
-        return []
+        """Funding events already settled at the replay clock (≤ 00:00 of the cursor day)."""
+        if self.funding is None:
+            return []
+        now_ms = int(self.now.timestamp() * 1000)
+        rows = []
+        for ev in self.funding.events:
+            t = int(ev.funding_time.timestamp() * 1000)
+            if t > now_ms or (start_ms is not None and t < start_ms):
+                continue
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "fundingTime": t,
+                    "fundingRate": str(ev.rate),
+                    "markPrice": "" if ev.mark_price is None else str(ev.mark_price),
+                }
+            )
+        return rows[-limit:]
+
+    def ticker_price(self, symbol: str) -> TickerPrice:
+        ts = self.dataset.frame.index[self.cursor]
+        return TickerPrice(symbol=symbol, price=self.dataset.dec(ts, "open"), time=self.now)
 
     def premium_index(self, symbol: str) -> MarkPriceInfo:
         ts = self.dataset.frame.index[self.cursor]

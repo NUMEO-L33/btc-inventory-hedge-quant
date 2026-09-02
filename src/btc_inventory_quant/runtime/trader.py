@@ -32,6 +32,7 @@ from btc_inventory_quant.exchange.base import (
     ExchangeTimeout,
     ExchangeUnavailable,
 )
+from btc_inventory_quant.exchange.binance_ws import StreamBundle
 from btc_inventory_quant.execution.order_manager import (
     DuplicateRiskError,
     OrderManager,
@@ -56,6 +57,8 @@ log = get_logger(__name__)
 STATE_PORTFOLIO = "portfolio"
 STATE_LAST_INCOME_SYNC_MS = "last_income_sync_ms"
 STATE_SAFE_HOLD_CANCELLED = "safe_hold_orders_cancelled"
+STATE_LAST_FUNDING_SETTLE_MS = "last_paper_funding_settle_ms"
+STATE_PREV_EQUITY = "prev_cycle_equity"
 
 
 @dataclass(slots=True)
@@ -94,8 +97,10 @@ class Trader:
         orders_allowed: bool,
         clock: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        streams: StreamBundle | None = None,
     ) -> None:
         self.config = config
+        self.streams = streams if (streams is not None and streams.enabled) else None
         self.exchange = exchange
         self.db = db
         self.spec = spec
@@ -153,6 +158,9 @@ class Trader:
             report["portfolio"] = "reconciled" if rec.ok else "MISMATCH"
             if not rec.ok:
                 self._engage("internal state differs from exchange at startup", rec.to_dict())
+        if self.streams is not None:
+            self.streams.start()
+            report["streams"] = [st.name for st in self.streams.statuses()]
         self.started = True
         self.alerter.notify(
             "system_start",
@@ -162,6 +170,8 @@ class Trader:
         return report
 
     def stop(self) -> None:
+        if self.streams is not None:
+            self.streams.stop()
         self._save_portfolio()
         self.metrics.persist()
         self.alerter.notify("system_stop", f"{self.config.mode.value} stopped")
@@ -213,6 +223,15 @@ class Trader:
         raw_target = None if np.isnan(raw) else Decimal(str(round(float(raw), 6)))
         self.consecutive_data_errors = 0
 
+        # shadow mode: settle the real funding history on the paper account (before today's trade)
+        settle = getattr(self.exchange, "settle_funding", None)
+        if callable(settle):
+            applied = settle(self.db.get_state(STATE_LAST_FUNDING_SETTLE_MS))
+            if applied:
+                self.db.set_state(
+                    STATE_LAST_FUNDING_SETTLE_MS, max(int(a["fundingTime"]) for a in applied) + 1
+                )
+
         # exchange state, income, reconciliation
         snap = self.reconciler.snapshot()
         income = self.reconciler.sync_income(
@@ -250,6 +269,20 @@ class Trader:
             )
         )
         guard_results.append(self.guards.check_rejects(self.order_manager.consecutive_rejects))
+        if self.streams is not None:
+            guard_results.append(
+                self.guards.check_stream_silence(
+                    self.streams.max_silence_seconds(now), self.streams.connected()
+                )
+            )
+            ws_pos = (
+                self.streams.user.last_position(self.symbol)
+                if self.streams.user is not None
+                else None
+            )
+            guard_results.append(
+                self.guards.check_ws_position(ws_pos.position_amt if ws_pos else None, position)
+            )
         crit = critical_failures(guard_results)
         if crit:
             self._engage(
@@ -563,11 +596,38 @@ class Trader:
         assert self.portfolio is not None
         pf = self.portfolio
         totals = pf.ledger.totals()
+        equity_usd = None if equity_btc is None or mark is None else equity_btc * mark
+        # daily PnL = change versus the previous cycle's equity (cycles are daily)
+        prev = self.db.get_state(STATE_PREV_EQUITY) or {}
+        daily_btc = daily_usd = None
+        if equity_btc is not None and prev.get("equity_btc") is not None:
+            daily_btc = equity_btc - Decimal(str(prev["equity_btc"]))
+        if equity_usd is not None and prev.get("equity_usd") is not None:
+            daily_usd = equity_usd - Decimal(str(prev["equity_usd"]))
+        if equity_btc is not None and prev.get("cycle_day") != now.date().isoformat():
+            self.db.set_state(
+                STATE_PREV_EQUITY,
+                {
+                    "equity_btc": str(equity_btc),
+                    "equity_usd": None if equity_usd is None else str(equity_usd),
+                    "cycle_day": now.date().isoformat(),
+                },
+            )
+        last_price: Decimal | None = None
+        try:
+            last_price = self.exchange.ticker_price(self.symbol).price
+        except ExchangeError as exc:
+            log.warning("ticker price unavailable", fields={"error": str(exc)})
+        ws_connected: bool | None = None if self.streams is None else self.streams.connected()
         self.metrics.update(
             mode=self.config.mode.value,
             system_state=self.kill_switch.status().state.value,
             equity_btc=equity_btc,
-            equity_usd=None if equity_btc is None or mark is None else equity_btc * mark,
+            equity_usd=equity_usd,
+            last_price=last_price,
+            daily_pnl_btc=daily_btc,
+            daily_pnl_usd=daily_usd,
+            websocket_connected=ws_connected,
             wallet_balance_btc=pf.wallet_balance_btc,
             mark_price=mark,
             short_contracts=pf.position.short_contracts,
@@ -610,6 +670,11 @@ class Trader:
                 res = self.cycle()
                 log.info("cycle done", fields={"action": res.action, "message": res.message})
                 return 0
+            # act on the latest completed candle right away (a restart after 00:05 UTC must not
+            # skip today's decision); cycle() itself is idempotent per candle
+            res = self.cycle()
+            cycles += 1
+            log.info("startup cycle done", fields={"action": res.action, "message": res.message})
             while max_cycles is None or cycles < max_cycles:
                 now = self.clock()
                 nxt = self.next_decision_time(now)

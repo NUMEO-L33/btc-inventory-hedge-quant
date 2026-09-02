@@ -49,6 +49,7 @@ from btc_inventory_quant.exchange.models import (
     OrderStatus,
     OrderType,
     PositionMode,
+    TickerPrice,
     dec,
     dec0,
     ms_to_dt,
@@ -375,6 +376,14 @@ class BinanceCoinMAdapter:
             ask_price=dec0(row["askPrice"]),
             ask_qty=dec0(row["askQty"]),
             time=ms_to_dt(row.get("time")),
+        )
+
+    def ticker_price(self, symbol: str) -> TickerPrice:
+        """§4.7 GET /dapi/v1/ticker/price (weight 1 for a single symbol)."""
+        rows = self._request("GET", "/dapi/v1/ticker/price", {"symbol": symbol})
+        row = rows[0] if isinstance(rows, list) else rows
+        return TickerPrice(
+            symbol=str(row["symbol"]), price=dec0(row["price"]), time=ms_to_dt(row.get("time"))
         )
 
     # ------------------------------------------------------------ account API

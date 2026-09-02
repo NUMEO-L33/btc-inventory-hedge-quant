@@ -52,17 +52,22 @@ def make_dataset(
     )
 
 
-def make_funding(dataset: DailyDataset, rate: Decimal = Decimal("0.0001")) -> FundingCalendar:
+def make_funding(
+    dataset: DailyDataset, rate: Decimal = Decimal("0.0001"), with_mark: bool = False
+) -> FundingCalendar:
+    """3 funding events per day; ``with_mark`` stamps each event with the day's mark open so the
+    backtest engine and the paper exchange settle on identical mark prices."""
     events: list[FundingEvent] = []
     for ts in dataset.frame.index:
         base = ts.to_pydatetime()
+        mark = dataset.dec(ts, "mark_open") if with_mark else None
         for h in (0, 8, 16):
             t = base + timedelta(hours=h)
             events.append(
                 FundingEvent(
                     funding_time=t,
                     rate=rate,
-                    mark_price=None,
+                    mark_price=mark,
                     raw_funding_time_ms=int(t.timestamp() * 1000),
                 )
             )

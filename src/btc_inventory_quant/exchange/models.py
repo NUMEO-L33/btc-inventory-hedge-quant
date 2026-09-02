@@ -226,3 +226,10 @@ class BookTicker:
     ask_price: Decimal
     ask_qty: Decimal
     time: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class TickerPrice:
+    symbol: str
+    price: Decimal
+    time: datetime | None

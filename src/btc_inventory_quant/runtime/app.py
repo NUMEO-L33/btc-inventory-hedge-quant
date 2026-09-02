@@ -16,6 +16,7 @@ from btc_inventory_quant.data.repositories import load_contract_spec
 from btc_inventory_quant.domain.inverse_contract import ContractSpec
 from btc_inventory_quant.exchange.base import ExchangeAdapter, ExchangeError
 from btc_inventory_quant.exchange.binance_coinm import BinanceCoinMAdapter
+from btc_inventory_quant.exchange.binance_ws import MarkPriceStream, StreamBundle, UserDataStream
 from btc_inventory_quant.exchange.paper import PaperExchange
 from btc_inventory_quant.execution.order_manager import OrderManager
 from btc_inventory_quant.execution.policies import (
@@ -52,6 +53,23 @@ class Components:
     reconciler: Reconciler
     guards: Guards
     metrics: MetricsRegistry
+    streams: StreamBundle | None = None
+
+
+def build_streams(config: AppConfig, exchange: ExchangeAdapter) -> StreamBundle | None:
+    """User-data stream (needs credentials) + mark-price stream (public). REST stays authoritative."""
+    if not config.exchange.use_websocket:
+        return None
+    adapter: BinanceCoinMAdapter | None = None
+    if isinstance(exchange, BinanceCoinMAdapter):
+        adapter = exchange
+    elif isinstance(exchange, PaperExchange) and isinstance(exchange.market, BinanceCoinMAdapter):
+        adapter = exchange.market
+    if adapter is None:
+        return None
+    user = UserDataStream(adapter) if adapter.supports_trading else None
+    mark = MarkPriceStream(adapter.ws_url, config.exchange.symbol)
+    return StreamBundle(user=user, mark=mark)
 
 
 def build_exchange(config: AppConfig, settings: Settings, mode: RunMode) -> ExchangeAdapter:
@@ -105,6 +123,7 @@ def build_components(
         settings, tuple(c.value for c in config.monitoring.alert_channels), recorder=_recorder(db)
     )
     kill_switch = KillSwitch(db, alerter)
+    streams = build_streams(config, exchange)
     om = OrderManager(
         exchange,
         db,
@@ -114,6 +133,7 @@ def build_components(
         mode.value,
         client_id_prefix=config.execution.client_order_id_prefix,
         order_timeout_seconds=config.execution.order_timeout_seconds,
+        event_source=streams.user if streams is not None else None,
     )
     policy: ExecutionPolicy
     match config.execution.policy:
@@ -151,6 +171,7 @@ def build_components(
         reconciler,
         guards,
         metrics,
+        streams,
     )
 
 
@@ -254,6 +275,7 @@ def build_trader(c: Components, mode: RunMode, confirm_live: bool = False) -> Tr
         c.guards,
         c.metrics,
         orders_allowed=orders_allowed,
+        streams=c.streams,
     )
 
 

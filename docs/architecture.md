@@ -9,7 +9,7 @@ BTC를 장기 보유하면서 BTC 담보 COIN-M Inverse 무기한 선물의 **�
 
 ```
 Strategy  →  Portfolio Engine  →  Risk Engine  →  Execution Engine  →  Exchange Adapter
-(목표 헤지율)   (자산·원장·포지션)     (한도·가드·킬스위치)   (주문 관리·리밸런스·정합성)   (Binance COIN-M / Paper / Fake)
+(목표 헤지율)   (자산·원장·포지션)     (한도·가드·킬스위치)   (주문 관리·리밸런스·정합성)   (Binance COIN-M REST+WS / Paper / Replay)
 ```
 
 | 계층 | 패키지 | 책임 | 절대 하지 않는 것 |
@@ -18,7 +18,7 @@ Strategy  →  Portfolio Engine  →  Risk Engine  →  Execution Engine  →  E
 | Portfolio Engine | `domain/` | Inverse 수학, 포지션 평균가, 원장(입출금 분리), Equity(BTC/USD) | 신호 판단 |
 | Risk Engine | `risk/` | 85% 캡, 일 20%p 변경 한도, 10%p 최소 차이, 롱 금지, BUY ≤ 숏, 명목가치 ≤ 자산, SAFE_HOLD | 주문 전송 |
 | Execution Engine | `execution/` | 목표 계약수 → 주문(δ), 고유 client order id, 타임아웃/중복 방지, 부분체결, reconciliation | 전략 로직 |
-| Exchange Adapter | `exchange/` | REST/WS 호출, 서명, 계약 사양 조회, 응답 검증·정규화 | 리스크 판단 |
+| Exchange Adapter | `exchange/` | REST 호출·서명, WebSocket 스트림(user data / markPrice, 보조 소스), 계약 사양 조회, 응답 검증·정규화, 페이퍼 거래소 | 리스크 판단 |
 | Backtest | `backtest/` | 이벤트 루프(종가 신호 → 다음 시가 체결), 비용·펀딩 모델, 보고서 | 미래 데이터 참조 |
 | Runtime | `runtime/` | backtest / shadow / testnet / live 모드 오케스트레이션, Live 게이트 | — |
 | Storage | `storage/` | SQLAlchemy 모델(주문·체결·원장·스냅샷·상태), SQLite/PostgreSQL | — |
@@ -71,15 +71,15 @@ Strategy/Risk/Execution 코드를 재사용한다.
 src/btc_inventory_quant/
   config/      schema.py(모든 설정) settings.py(환경변수) loader.py(YAML+해시)
   domain/      inverse_contract.py position.py portfolio.py ledger.py
-  data/        market_data.py funding_data.py repositories.py
+  data/        market_data.py funding_data.py repositories.py downloader.py
   indicators/  trend.py volatility.py
   strategy/    base.py regime_hedge.py state_machine.py benchmarks.py
-  backtest/    engine.py execution_model.py funding_model.py metrics.py reports.py walkforward.py
-  exchange/    base.py models.py binance_coinm.py paper.py fake.py
+  backtest/    engine.py execution_model.py funding_model.py metrics.py reports.py runner.py scenarios.py walkforward.py
+  exchange/    base.py models.py binance_coinm.py binance_ws.py paper.py
   execution/   order_manager.py rebalancer.py reconciliation.py policies.py
   risk/        limits.py guards.py kill_switch.py
   monitoring/  logging.py metrics.py alerts.py
   storage/     database.py models.py
-  runtime/     live_gate.py trader.py
+  runtime/     app.py live_gate.py trader.py
   cli/         main.py
 ```

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from btc_inventory_quant.config.schema import RiskLimits
 from btc_inventory_quant.domain.inverse_contract import ZERO, ContractSpec, OrderSide
@@ -128,6 +128,12 @@ def status_to_state(status: OrderStatus) -> OrderState:
     return mapping.get(status, OrderState.SUBMITTED)
 
 
+class OrderEventSource(Protocol):
+    """Anything that can report the latest user-data-stream event for a client order id."""
+
+    def latest_order_event(self, client_order_id: str) -> Any: ...
+
+
 class OrderManager:
     def __init__(
         self,
@@ -138,6 +144,7 @@ class OrderManager:
         symbol: str,
         mode: str,
         *,
+        event_source: OrderEventSource | None = None,
         client_id_prefix: str = "biq",
         order_timeout_seconds: float = 30.0,
         max_query_attempts: int = 5,
@@ -161,7 +168,17 @@ class OrderManager:
         self._sleep = sleep
         self._clock = clock
         self.bypass_cap = bypass_cap
+        self.event_source = event_source
         self.consecutive_rejects = 0
+
+    def stream_event(self, cid: str) -> Any:
+        if self.event_source is None:
+            return None
+        try:
+            return self.event_source.latest_order_event(cid)
+        except Exception as exc:  # the stream is auxiliary; never let it break resolution
+            log.warning("stream lookup failed", fields={"cid": cid, "error": str(exc)})
+            return None
 
     # --------------------------------------------------------------- ids
     def new_client_order_id(self) -> str:
@@ -295,6 +312,15 @@ class OrderManager:
                 return order
             except ExchangeAPIError as exc:
                 if exc.code == NO_SUCH_ORDER:
+                    # §11 step 5: the user data stream may already know the order even if the REST
+                    # query lags — a stream event means the order EXISTS, never declare NOT_PLACED
+                    if self.stream_event(cid) is not None:
+                        log.info(
+                            "REST -2013 but the user stream saw the order; retrying query",
+                            fields={"cid": cid},
+                        )
+                        self._sleep(self.query_grace)
+                        continue
                     not_found += 1
                     if not_found >= 2:
                         self.db.upsert_order(
@@ -339,7 +365,9 @@ class OrderManager:
         deadline = self._clock() + (timeout if timeout is not None else self.order_timeout)
         current = order
         while not current.status.is_terminal and self._clock() < deadline:
-            self._sleep(self.poll_interval)
+            ev = self.stream_event(cid)
+            if ev is None or not getattr(ev, "status", OrderStatus.UNKNOWN).is_terminal:
+                self._sleep(self.poll_interval)
             try:
                 current = self.exchange.query_order(self.symbol, client_order_id=cid)
                 self._record_exchange_order(current)

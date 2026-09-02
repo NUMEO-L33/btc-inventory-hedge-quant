@@ -190,6 +190,35 @@ class Guards:
             )
         return GuardResult(True, "SPEC_OK")
 
+    def check_stream_silence(self, silence_seconds: float | None, connected: bool) -> GuardResult:
+        """WebSocket streams enabled but silent/disconnected for too long → SAFE_HOLD."""
+        if silence_seconds is None:
+            return GuardResult(True, "WS_NOT_ENABLED")
+        if silence_seconds > self.limits.ws_max_silence_seconds:
+            return GuardResult(
+                False,
+                "WS_SILENT",
+                f"no stream message for {silence_seconds:.0f}s (connected={connected})",
+                critical=True,
+            )
+        return GuardResult(True, "WS_OK")
+
+    def check_ws_position(
+        self, ws_position_amt: Decimal | None, rest_position: ExchangePosition | None
+    ) -> GuardResult:
+        """REST positionRisk vs the latest ACCOUNT_UPDATE position must agree."""
+        if ws_position_amt is None:
+            return GuardResult(True, "WS_POSITION_NOT_AVAILABLE")
+        rest_amt = rest_position.contracts if rest_position else ZERO
+        if ws_position_amt != rest_amt:
+            return GuardResult(
+                False,
+                "WS_REST_POSITION_MISMATCH",
+                f"ws={ws_position_amt} rest={rest_amt}",
+                critical=True,
+            )
+        return GuardResult(True, "WS_POSITION_OK")
+
 
 def failures(results: list[GuardResult]) -> list[GuardResult]:
     return [r for r in results if not r.ok]

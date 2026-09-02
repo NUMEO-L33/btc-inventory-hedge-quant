@@ -98,6 +98,7 @@ class RiskLimits(StrictModel):
         Decimal("0.25"), ge=0
     )  # SAFE_HOLD if maint-margin/equity > buffer
     max_unexpected_balance_diff_btc: Decimal = Field(Decimal("0.00001"), ge=0)
+    ws_max_silence_seconds: int = Field(900, ge=30)  # SAFE_HOLD when streams are enabled but silent
 
     @model_validator(mode="after")
     def _check(self) -> RiskLimits:
@@ -196,6 +197,7 @@ class ExchangeConfig(StrictModel):
     expected_margin_type: Literal["CROSSED", "ISOLATED"] = "CROSSED"
     expected_leverage: int = Field(1, ge=1, le=5)
     paper_initial_btc: Decimal = Field(Decimal("1"), gt=0)  # shadow-mode simulated account size
+    use_websocket: bool = True  # user-data + mark-price streams (REST stays authoritative)
     max_retries: int = Field(5, ge=0)
     backoff_base_seconds: float = Field(0.5, gt=0)
     backoff_max_seconds: float = Field(30.0, gt=0)

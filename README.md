@@ -26,7 +26,7 @@ git clone <repo> && cd btc-inventory-hedge-quant
 python3.12 -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 106 tests
+python -m pytest -q                                             # 119 tests (unit / integration / simulation)
 ```
 
 Docker: `docker compose run --rm backtest` / `docker compose up -d shadow`.
@@ -79,6 +79,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 | [docs/operations_runbook.md](docs/operations_runbook.md) | 설치·백테스트·Shadow·Testnet·Live·점검 |
 | [docs/incident_response.md](docs/incident_response.md) | SAFE_HOLD 트리거·대응·재시작 복구 |
 | [docs/exchange_api_verification.md](docs/exchange_api_verification.md) | Binance COIN-M 공식 문서 검증(VERIFIED/PARTIAL/UNVERIFIED) |
+| [docs/requirements_audit.md](docs/requirements_audit.md) | 요구사항 21개 절 → 구현·테스트 추적 매트릭스, 감사 후 보강 내역 |
 
 ## 7. 알려진 한계 · 미검증 항목
 
@@ -86,7 +87,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * 펀딩 금액 공식의 COIN-M 전용 원문(÷ Mark Price)은 공식 문서에서 찾지 못함(PARTIAL). Reconciliation 의 `verify_funding_formula` 로 실측 역검증.
 * 현재 VIP0 수수료율·COIN-M BNB 할인 여부 미확인 → 런타임 `commissionRate` 조회, 백테스트는 보수적 0.05%/0.02%.
 * 계약 사양 변경 이력 미반영(현재 사양 고정), 일봉 해상도 근사(펀딩 시각 마크가격), 슬리피지·부분체결은 모델값.
-* WebSocket 스트림은 미구현(일 1회 판단이므로 REST 폴링으로 충분; 실시간 체결 확인이 필요해지면 추가).
+* WebSocket 스트림(user data / markPrice)은 로컬 서버 테스트로만 검증(실서버 미검증). REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
 * 머신러닝 없음(V1 범위 제외).
 
 ## 8. 보안

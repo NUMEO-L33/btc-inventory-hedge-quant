@@ -17,6 +17,7 @@ from btc_inventory_quant.exchange.models import (
     MarkPriceInfo,
     OrderRequest,
     PositionMode,
+    TickerPrice,
 )
 
 
@@ -75,6 +76,7 @@ class MarketDataProvider(Protocol):
     ) -> list[dict[str, Any]]: ...
     def premium_index(self, symbol: str) -> MarkPriceInfo: ...
     def book_ticker(self, symbol: str) -> BookTicker: ...
+    def ticker_price(self, symbol: str) -> TickerPrice: ...
 
 
 @runtime_checkable

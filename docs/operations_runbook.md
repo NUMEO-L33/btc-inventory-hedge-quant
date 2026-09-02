@@ -7,7 +7,7 @@ python3.12 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scri
 pip install -e ".[dev]"
 cp .env.example .env                                          # 키 입력, 절대 커밋 금지
 python -m btc_inventory_quant data verify                     # 원본 데이터 체크섬
-python -m pytest -q                                           # 106+ 테스트
+python -m pytest -q                                           # 119 테스트
 ```
 
 ## 1. 백테스트
@@ -38,7 +38,7 @@ python -m btc_inventory_quant status --config configs/shadow.yaml
 
 1. Binance Demo Trading 에서 API 키 발급(공식 FAQ 절차; COIN-M 데모 적용 여부는 PARTIAL → 첫 실행 보고서로 확인).
 2. `.env` 에 `BIQ_BINANCE_DEMO_API_KEY/SECRET` 입력.
-3. 계정 설정: One-way 모드, BTCUSD_PERP Cross, 레버리지 1.
+3. 계정 설정: One-way 모드, BTCUSD_PERP Cross, 레버리지 1. **API 키는 출금 권한 없음·IP 화이트리스트를 거래소 UI에서 직접 확인**(COIN-M API 로는 출금 권한을 조회할 수 없음).
 4. `python -m btc_inventory_quant testnet --config configs/testnet.yaml --once` → 시작 보고서에서 `contract_spec`, `order_recovery`, `portfolio` 항목 확인.
 5. 상시 실행 후 `reconcile` 로 상태 일치 확인, `income(FUNDING_FEE)` 로 펀딩 공식 역검증 결과 확인(`docs/inverse_math.md` §6 PARTIAL 해소).
 

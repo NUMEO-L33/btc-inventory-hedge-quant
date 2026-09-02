@@ -68,7 +68,8 @@ class Harness:
 
         sym = json.loads((FIXTURES / "exchange_info_btcusd_perp.json").read_text())["symbol"]
         self.spec = ContractSpec.from_exchange_info_symbol(sym, "fixture")
-        self.market = ReplayMarketData(self.ds, self.spec)
+        self.funding = make_funding(self.ds, rate=D("0.0001"), with_mark=True)
+        self.market = ReplayMarketData(self.ds, self.spec, funding=self.funding)
         self.exchange = PaperExchange(
             self.market, self.spec, initial_btc=D("1"), taker_fee=D("0.0005"), slippage_bps=D("5")
         )
@@ -130,10 +131,10 @@ def test_trader_matches_backtest_engine_on_replayed_data(tmp_path: Path) -> None
     actions = [r.action for r in results]
     assert "rebalance" in actions
     assert all(a in ("rebalance", "none", "skipped") for a in actions), actions
-    # reference: backtest engine with zero funding (the paper exchange applies no funding here)
+    # reference: the backtest engine with the SAME funding calendar the paper exchange settles
     eng = BacktestEngine(
         dataset=h.ds,
-        funding_calendar=make_funding(h.ds, rate=D("0")),
+        funding_calendar=h.funding,
         spec=h.spec,
         strategy=RegimeHedgeV1(PARAMS),
         limits=h.config.risk,
@@ -150,7 +151,24 @@ def test_trader_matches_backtest_engine_on_replayed_data(tmp_path: Path) -> None
     assert np.allclose(live_ratio, engine_ratio, atol=1e-6)
     last = bt_days.iloc[-1]
     assert h.exchange.position.contracts == -Decimal(str(last["short_contracts"]))
-    assert abs(h.exchange.wallet_balance - Decimal(str(last["wallet_btc"]))) < D("1e-12")
+    # wallets differ only by the funding events after the last replayed decision (08:00/16:00 of the
+    # final day are settled by the engine but not yet by the paper account at 00:05)
+    engine_wallet = Decimal(str(last["wallet_btc"]))
+    pending_events = [
+        e for e in h.funding.events if e.day == bt_days.index[-1].date() and e.hour != 0
+    ]
+    pending = sum(
+        (
+            -h.exchange.position.contracts
+            * h.spec.contract_value_usd
+            / (e.mark_price or D(1))
+            * e.rate
+            for e in pending_events
+        ),
+        D("0"),
+    )
+    assert abs(h.exchange.wallet_balance + pending - engine_wallet) < D("1e-9")
+    assert sum(1 for r in h.exchange.income_records if r.income_type == "FUNDING_FEE") > 0
 
 
 def test_restart_recovers_position_and_continues(tmp_path: Path) -> None:
@@ -343,3 +361,31 @@ def test_clock_utc(tmp_path: Path) -> None:
     h = Harness(tmp_path)
     assert h.market.now.tzinfo is UTC
     assert isinstance(h.market.now, datetime)
+
+
+def test_run_acts_on_latest_candle_immediately_at_startup(tmp_path: Path) -> None:
+    """A process started after the daily decision time must not skip that day's candle."""
+    h = Harness(tmp_path)
+    trader = h.build_trader()
+    h.market.cursor = WARMUP + 1
+    # the replay clock is 00:05 UTC == decision time; run(max_cycles=1) must decide NOW, not tomorrow
+    assert trader.run(max_cycles=1) == 0
+    decision = h.db.latest_decision()
+    assert decision is not None
+    assert decision.candle_time == h.ds.frame.index[WARMUP].to_pydatetime()
+
+
+def test_shadow_funding_is_settled_once_per_event(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    trader = h.build_trader()
+    trader.start()
+    h.run_days(WARMUP + 1, 5)
+    trader.cycle()  # first cycle of the current replay day settles its events
+    n_before = sum(1 for r in h.exchange.income_records if r.income_type == "FUNDING_FEE")
+    assert n_before > 0
+    # re-running a cycle on the same day must not settle the same events twice
+    trader.cycle()
+    n_after = sum(1 for r in h.exchange.income_records if r.income_type == "FUNDING_FEE")
+    assert n_after == n_before
+    assert trader.portfolio is not None
+    assert trader.portfolio.ledger.totals().funding > 0  # income sync mirrored it into the ledger
