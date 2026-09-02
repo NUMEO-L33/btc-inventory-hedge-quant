@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time
 from decimal import Decimal
 from pathlib import Path
@@ -62,6 +62,7 @@ class LoadedMarket:
     funding: FundingCalendar
     spec: ContractSpec
     quality: dict[str, Any]
+    settlement_marks: dict[datetime, Decimal] = field(default_factory=dict)
 
 
 def load_market(config: AppConfig, as_of: datetime | None = None) -> LoadedMarket:
@@ -69,13 +70,26 @@ def load_market(config: AppConfig, as_of: datetime | None = None) -> LoadedMarke
     spec = repo.contract_spec()
     dataset = repo.daily()
     funding, funding_report = repo.funding()
+    settlement_marks = repo.settlement_marks()
+    covered = sum(1 for e in funding.events if e.funding_time in settlement_marks)
     quality = {
         "market": {k: v.to_dict() for k, v in dataset.quality.items()},
         "funding": funding_report.to_dict(),
+        "settlement_marks": {
+            "available": len(settlement_marks),
+            "funding_events_covered": covered,
+            "source": "mark_price_klines_8h" if settlement_marks else "daily_kline_approximation",
+        },
         "notes": dataset.frame.attrs.get("notes", []),
         "contract_spec_source": spec.source,
     }
-    return LoadedMarket(dataset=dataset, funding=funding, spec=spec, quality=quality)
+    return LoadedMarket(
+        dataset=dataset,
+        funding=funding,
+        spec=spec,
+        quality=quality,
+        settlement_marks=settlement_marks,
+    )
 
 
 def _to_dt(d: Any) -> datetime | None:
@@ -107,6 +121,7 @@ def run_strategy(
         start=start if start is not None else _to_dt(bt.start),
         end=end if end is not None else _to_dt(bt.end),
         warmup_bars=bt.warmup_bars,
+        settlement_marks=market.settlement_marks,
     )
     result: BacktestResult = engine.run()
     summary, frames = summarize(result, initial_btc or bt.initial_btc)

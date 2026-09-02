@@ -202,6 +202,7 @@ def summarize(
         "missed_rebalances": result.stats.get("missed_rebalances", 0),
         "partial_fills": result.stats.get("partial_fills", 0),
         "funding_events_exact_mark": result.stats.get("funding_events_exact_mark", 0),
+        "funding_events_kline_8h_mark": result.stats.get("funding_events_kline_8h_mark", 0),
         "funding_events_approximated_mark": result.stats.get("funding_events_approximated_mark", 0),
         "regime_performance": regime_perf,
         "verdict": (

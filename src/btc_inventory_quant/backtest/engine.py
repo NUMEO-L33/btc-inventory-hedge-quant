@@ -88,6 +88,9 @@ class BacktestEngine:
     end: datetime | None = None
     warmup_bars: int = 210
     strict: bool = True  # raise on risk violations (a violation in backtest is a bug)
+    # exact mark price at each settlement instant (optional mark_price_klines_8h dataset);
+    # empty means the funding model falls back to the daily-kline approximation as before
+    settlement_marks: dict[datetime, Decimal] = field(default_factory=dict)
     _signals: pd.DataFrame | None = field(default=None, init=False)
 
     # ------------------------------------------------------------------
@@ -121,7 +124,7 @@ class BacktestEngine:
         delay = self.cost.signal_delay_days
 
         exec_model = ExecutionModel(self.cost, self.spec, self.seed)
-        funding_model = FundingModel(self.funding_calendar, self.cost)
+        funding_model = FundingModel(self.funding_calendar, self.cost, self.settlement_marks)
         rebalancer = Rebalancer(
             self.spec, self.limits, bypass_cap=self.strategy.bypass_max_hedge_cap
         )
@@ -343,6 +346,7 @@ class BacktestEngine:
             "missed_rebalances": exec_model.missed_count,
             "partial_fills": exec_model.partial_count,
             "funding_events_exact_mark": funding_model.exact_count,
+            "funding_events_kline_8h_mark": funding_model.kline_8h_count,
             "funding_events_approximated_mark": funding_model.approximated_count,
             "risk_violations": violations,
             "seed": self.seed,

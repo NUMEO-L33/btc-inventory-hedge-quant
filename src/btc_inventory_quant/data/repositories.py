@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from btc_inventory_quant.data.funding_data import (
     load_funding_events,
 )
 from btc_inventory_quant.data.market_data import DailyDataset, MarketDataError, build_daily_dataset
+from btc_inventory_quant.data.settlement_marks import load_settlement_marks_if_present
 from btc_inventory_quant.domain.inverse_contract import ContractSpec
 
 
@@ -55,6 +57,10 @@ class MarketDataRepository:
     def funding(self) -> tuple[FundingCalendar, FundingQualityReport]:
         events, report = load_funding_events(self.cfg.raw_dir / "funding_rate")
         return FundingCalendar(events), report
+
+    def settlement_marks(self) -> dict[datetime, Decimal]:
+        """Exact mark at each settlement instant; ``{}`` when the 8h dataset was not downloaded."""
+        return load_settlement_marks_if_present(self.cfg.raw_dir)
 
     def raw_manifest(self) -> dict[str, Any] | None:
         p = self.cfg.raw_dir / "manifest.json"
