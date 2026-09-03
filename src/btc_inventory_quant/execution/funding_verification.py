@@ -157,7 +157,11 @@ class FundingVerification:
                 if self.rate_source in ("", self.environment)
                 else (
                     f"rates taken from '{self.rate_source}' because '{self.environment}' publishes "
-                    "no funding history; sound only while the two price the instrument alike"
+                    "no funding history. environments_agree compares the MARK PRICE only — two "
+                    "venues can quote the same mark and still run different funding rates, which "
+                    "is exactly what happened on 2026-09-03 (demo settled at ~2.9x production's "
+                    "rate). Prefer 'verify-funding --snapshot-rate' shortly before a settlement, "
+                    "which captures the rate from this same environment"
                 )
             ),
             "environments_agree": self.environments_agree,
@@ -251,9 +255,29 @@ def _resolve_rates(
     end_ms: int,
     allow_production_rates: bool,
 ) -> tuple[dict[datetime, tuple[Decimal, Decimal | None]], str]:
+    """Rates in priority order: the environment's own history > pre-settlement snapshots of that
+    same environment > production (opt-in, cross-environment, weakest)."""
     rates = _rates_and_marks(exchange, symbol, start_ms, end_ms)
-    if rates or not allow_production_rates or exchange.environment == "production":
+    if rates or exchange.environment == "production":
         return rates, exchange.environment
+
+    from btc_inventory_quant.execution import rate_snapshot
+
+    lo = datetime.fromtimestamp(start_ms / 1000, tz=UTC)
+    hi = datetime.fromtimestamp(end_ms / 1000, tz=UTC)
+    snapped = {
+        ts: v
+        for ts, v in rate_snapshot.rates_for(
+            rate_snapshot.load(), symbol, exchange.environment
+        ).items()
+        if lo <= ts <= hi
+    }
+    if snapped:
+        log.info("funding_rate_from_pre_settlement_snapshot", extra={"count": len(snapped)})
+        return snapped, f"{exchange.environment} (captured before settlement)"
+
+    if not allow_production_rates:
+        return {}, exchange.environment
     log.warning("funding_rate_absent_falling_back_to_production", extra={"symbol": symbol})
     return _production_rates(symbol, start_ms, end_ms), "production"
 

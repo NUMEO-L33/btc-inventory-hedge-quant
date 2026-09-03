@@ -416,7 +416,10 @@ def test_production_fallback_labels_the_source_and_records_agreement(
     assert r.verdict == "VERIFIED"
     assert r.rate_source == "production"
     d = r.to_dict()
-    assert "sound only while the two price the instrument alike" in d["rate_source_caveat"]
+    # the caveat must warn that agreeing marks do NOT imply agreeing rates — the trap that
+    # produced the 2.9x MISMATCH on 2026-09-03
+    assert "MARK PRICE" in d["rate_source_caveat"]
+    assert "--snapshot-rate" in d["rate_source_caveat"]
     assert d["environments_agree"] is True
     assert d["mark_configured"] == "60000" and d["mark_production"] == "60005"
 

@@ -312,6 +312,7 @@ def ops_command(
     window_hours: int = 48,
     contracts: str = "",
     allow_production_rates: bool = False,
+    snapshot_rate: bool = False,
 ) -> int:
     config = load_config(config_path)
     settings = load_settings()
@@ -363,6 +364,24 @@ def ops_command(
         from btc_inventory_quant.execution.funding_verification import verify_funding
 
         components = build_components(config, settings, config.mode)
+        if snapshot_rate:
+            from btc_inventory_quant.execution import rate_snapshot
+
+            rate_snap = rate_snapshot.capture(components.exchange, config.exchange.symbol)
+            rate_snapshot.append(rate_snap)
+            print(json.dumps(rate_snap.to_dict(), indent=2, ensure_ascii=False))
+            mins = rate_snap.seconds_before_settlement / 60
+            print(
+                f"\ncaptured the rate '{rate_snap.environment}' will apply at "
+                f"{rate_snap.funding_time.isoformat()} ({mins:.1f} min away). "
+                + (
+                    "Close enough to the boundary to be the settled rate."
+                    if mins <= 15
+                    else "This is far from the boundary and the rate can still move — "
+                    "re-run within ~10 minutes of the settlement for a reliable capture."
+                )
+            )
+            return 0
         result = verify_funding(
             components.exchange,
             components.exchange.contract_spec(config.exchange.symbol),

@@ -153,6 +153,7 @@ def cmd_ops(args: argparse.Namespace) -> int:
             window_hours=getattr(args, "window_hours", 48),
             contracts=getattr(args, "contracts", "") or "",
             allow_production_rates=getattr(args, "allow_production_rates", False),
+            snapshot_rate=getattr(args, "snapshot_rate", False),
         )
     )
 
@@ -244,6 +245,14 @@ def build_parser() -> argparse.ArgumentParser:
                 default="",
                 help="position size held during the window (signed; negative = short). "
                 "Omit to read the current exchange position, which assumes it never changed.",
+            )
+            o.add_argument(
+                "--snapshot-rate",
+                action="store_true",
+                help="capture the rate THIS environment will apply at the next settlement "
+                "(premiumIndex) and store it for a later verify-funding run. Run it within ~10 "
+                "minutes of 00:00/08:00/16:00 UTC. Needed where the environment publishes no "
+                "funding history, as the demo host does not.",
             )
             o.add_argument(
                 "--allow-production-rates",
