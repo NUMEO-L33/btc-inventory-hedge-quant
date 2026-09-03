@@ -58,9 +58,39 @@ class SettlementCheck:
         return None if self.computed_btc == ZERO else self.actual_btc / self.computed_btc
 
     @property
+    def report_quantum(self) -> Decimal:
+        """Smallest amount the exchange's own report can express.
+
+        Measured 2026-09-03: a settlement modelled at 0.0000001294 BTC was reported as 0.00000012 —
+        the exchange truncates to 8 decimal places. On a 1-contract position that quantisation is
+        7.7% of the whole amount, so a fixed 0.5% tolerance can NEVER be met however correct the
+        formula is. The reported value's own exponent gives the quantum, so the check can allow
+        exactly the precision the exchange actually offers and no more.
+        """
+        return Decimal(1).scaleb(self.actual_btc.as_tuple().exponent)  # type: ignore[arg-type]
+
+    @property
+    def allowed_difference(self) -> Decimal:
+        """Tolerance in BTC: the relative band, or the reporting quantum when that is coarser."""
+        return max(TOLERANCE * abs(self.computed_btc), self.report_quantum)
+
+    @property
+    def limited_by_precision(self) -> bool:
+        """True when the exchange's reporting precision, not the model, sets the bar."""
+        return self.report_quantum > TOLERANCE * abs(self.computed_btc)
+
+    @property
+    def resolution_pct(self) -> Decimal | None:
+        """How tightly this settlement can test the formula at all, in percent."""
+        if self.computed_btc == ZERO:
+            return None
+        return self.report_quantum / abs(self.computed_btc) * 100
+
+    @property
     def ok(self) -> bool:
-        r = self.ratio
-        return r is not None and abs(r - 1) <= TOLERANCE
+        if self.computed_btc == ZERO:
+            return False
+        return abs(self.difference_btc) <= self.allowed_difference
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,6 +104,10 @@ class SettlementCheck:
             "computed_btc": str(self.computed_btc),
             "difference_btc": str(self.difference_btc),
             "ratio": None if self.ratio is None else str(self.ratio),
+            "report_quantum_btc": str(self.report_quantum),
+            "allowed_difference_btc": str(self.allowed_difference),
+            "limited_by_report_precision": self.limited_by_precision,
+            "resolution_pct": None if self.resolution_pct is None else f"{self.resolution_pct:.2f}",
             "ok": self.ok,
         }
 
@@ -148,6 +182,20 @@ class FundingVerification:
             "mean_ratio": None if mean is None else str(mean),
             "tolerance": str(TOLERANCE),
             "verdict": self.verdict,
+            "weakest_resolution_pct": (
+                None
+                if not self.checks
+                else f"{max((c.resolution_pct or ZERO) for c in self.checks):.2f}"
+            ),
+            "precision_note": (
+                None
+                if not any(c.limited_by_precision for c in self.checks)
+                else (
+                    "at least one settlement is limited by the exchange's reporting precision "
+                    "rather than by the model. A larger position raises the resolution: the "
+                    "funding amount grows with contracts while the reported quantum stays fixed."
+                )
+            ),
             "formula": "funding_btc = -sign(c) * |c| * contract_value_usd / mark_price * rate",
             "resolves_partial": self.verdict == "VERIFIED" and self.samples >= 1,
             "diagnosis": self.diagnosis,

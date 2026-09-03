@@ -456,3 +456,51 @@ def test_disagreeing_environments_are_flagged_even_when_amounts_match(
     )
     assert r.verdict == "VERIFIED"  # the arithmetic matched...
     assert r.to_dict()["environments_agree"] is False  # ...but the inputs came from elsewhere
+
+
+# --------------------------------------------------------------------- reporting precision
+def test_truncated_report_is_not_called_a_mismatch(spec: ContractSpec) -> None:
+    """The real 2026-09-03 case: model 0.0000001294 reported as 0.00000012 (8dp truncation).
+
+    A fixed 0.5% band calls that a 7.3% MISMATCH; it is really the exchange's own precision.
+    """
+    ts = NOW - timedelta(hours=2)
+    ex = FakeExchange([(ts, "0.00010000", "77273.60000000", "1.2E-7")], contracts="-1")
+    r = verify_funding(ex, spec, "BTCUSD_PERP", now=NOW)  # type: ignore[arg-type]
+    assert r.verdict == "VERIFIED"
+    c = r.checks[0]
+    assert c.report_quantum == D("1E-8")
+    assert c.limited_by_precision is True
+    d = r.to_dict()
+    assert d["settlements"][0]["limited_by_report_precision"] is True
+    assert "larger position raises the resolution" in d["precision_note"]
+
+
+def test_a_real_error_still_fails_despite_the_quantum_allowance(spec: ContractSpec) -> None:
+    """The allowance must not become a licence: a 2.9x error is far outside one quantum."""
+    ts = NOW - timedelta(hours=2)
+    ex = FakeExchange([(ts, "0.00003170", "77273.60000000", "1.2E-7")], contracts="-1")
+    r = verify_funding(ex, spec, "BTCUSD_PERP", now=NOW)  # type: ignore[arg-type]
+    assert r.verdict == "MISMATCH"  # difference 7.9e-8 >> quantum 1e-8
+
+
+def test_a_large_position_is_judged_on_the_relative_band_not_the_quantum(
+    spec: ContractSpec,
+) -> None:
+    """With enough contracts the quantum stops binding and the 0.5% band takes over."""
+    ts = NOW - timedelta(hours=2)
+    exact = funding_payment_btc(D("-1000"), CV, D("77273.60000000"), D("0.00010000"))
+    ex = FakeExchange([(ts, "0.00010000", "77273.60000000", str(exact))], contracts="-1000")
+    r = verify_funding(ex, spec, "BTCUSD_PERP", now=NOW)  # type: ignore[arg-type]
+    c = r.checks[0]
+    assert c.limited_by_precision is False
+    assert c.resolution_pct is not None and c.resolution_pct < D("0.01")
+    assert r.to_dict()["precision_note"] is None
+
+
+def test_resolution_is_reported_so_a_weak_verified_is_visible(spec: ContractSpec) -> None:
+    """A VERIFIED at 1 contract only confirms the formula to ~8%; the report must say so."""
+    ts = NOW - timedelta(hours=2)
+    ex = FakeExchange([(ts, "0.00010000", "77273.60000000", "1.2E-7")], contracts="-1")
+    d = verify_funding(ex, spec, "BTCUSD_PERP", now=NOW).to_dict()  # type: ignore[arg-type]
+    assert float(d["weakest_resolution_pct"]) > 5.0
