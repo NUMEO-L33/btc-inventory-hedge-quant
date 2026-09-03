@@ -311,6 +311,7 @@ def ops_command(
     ack: str = "",
     window_hours: int = 48,
     contracts: str = "",
+    allow_production_rates: bool = False,
 ) -> int:
     config = load_config(config_path)
     settings = load_settings()
@@ -368,6 +369,7 @@ def ops_command(
             config.exchange.symbol,
             window_hours=window_hours,
             contracts=Decimal(contracts) if contracts else None,
+            allow_production_rates=allow_production_rates,
         )
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
         if result.verdict == "NO_DATA":

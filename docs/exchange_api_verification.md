@@ -672,7 +672,7 @@ weight "20 (after CM migration: 20 with symbol / 50 without symbol)" ; `symbol` 
 |---|---|---|---|
 | 1 | Production REST `https://dapi.binance.com` | VERIFIED | https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info |
 | 1 | Market/User WS `wss://dstream.binance.com` (+ `/ws/<listenKey>`) | VERIFIED | https://developers.binance.com/legacy-docs/derivatives/coin-margined-futures/websocket-market-streams , .../user-data-streams/Connect |
-| 1 | Demo REST `https://demo-dapi.binance.com`, WS `wss://demo-dstream.binance.com` | VERIFIED (문서) / 접속 UNVERIFIED | 위 general-info (legacy 문자단위 재확인) |
+| 1 | Demo REST `https://demo-dapi.binance.com`, WS `wss://demo-dstream.binance.com` | **VERIFIED (실접속 2026-09-02)** — 주문 제출·체결·user_data/markPrice 스트림 확인 | 위 general-info (legacy 문자단위 재확인) |
 | 1 | `testnet.binancefuture.com` 유효성 | PARTIAL (SDK/WS-API 페이지 잔존, 공지상 점진 폐쇄) | https://www.binance.com/en/support/announcement/detail/616402d041c74000bc78282018bc62d4 , SDK constants.py |
 | 2 | X-MBX-APIKEY, HMAC-SHA256(totalParams=query+body), timestamp/recvWindow(기본 5000, max 60000, +1000ms 규칙) | VERIFIED | https://developers.binance.com/legacy-docs/derivatives/coin-margined-futures/general-info |
 | 2 | RSA(PKCS#8) | VERIFIED | 동상 |
@@ -712,3 +712,26 @@ weight "20 (after CM migration: 20 with symbol / 50 without symbol)" ; `symbol` 
 7. listenKey: 30분마다 PUT, 24h 전 재연결, `listenKeyExpired` 시 즉시 재발급 ; `-1125` 처리.
 8. 포지션 모드/STP/레이트리밋은 UM 과 공유됨(통합 이후) — USDⓈ-M 계정 설정과 충돌 주의.
 9. 데모 환경 기본값: `https://demo-dapi.binance.com`, `wss://demo-dstream.binance.com` (접속 가능 여부 런타임 확인).
+
+
+## §16 데모 환경 실측 (2026-09-02/03, 실접속)
+
+`python -m btc_inventory_quant testnet --config configs/testnet.yaml --once` 및 `verify-funding` 실행 결과.
+
+| 항목 | 결과 | 상태 변경 |
+|---|---|---|
+| Demo REST 접속 (`demo-dapi.binance.com`) | 성공 — 주문 제출·MARKET 체결 완주 | UNVERIFIED → **VERIFIED** |
+| Demo 키의 COIN-M 적용 여부 | **적용됨** — 같은 데모 키로 COIN-M 인증 통과 | UNVERIFIED → **VERIFIED** |
+| WebSocket 실서버 (`user_data`, `mark_price`) | 두 스트림 모두 연결 | UNVERIFIED → **VERIFIED** |
+| 계약사양 실서버 대조 | `SPEC_OK` (contractSize 100) | VERIFIED |
+| 시계 동기화 | `clock_offset_ms: 11` | 정상 |
+| 펀딩 정산 발생 | `FUNDING_FEE` income 기록 존재 (2026-09-03T00:00Z) | 확인 |
+| **Demo `GET /dapi/v1/fundingRate`** | **빈 배열 반환** — 시간 필터 유무 무관, `limit=200` 무필터 재조회도 0행 | **신규 UNVERIFIED 항목** |
+
+### 데모의 펀딩 요율 이력 부재 (신규 발견)
+
+데모 환경은 **펀딩을 정산하면서도 그 요율 이력을 공개하지 않는다.** 정산 자체는 `income(FUNDING_FEE)` 로 확인되지만 `fundingRate` 는 항상 빈 배열이다. 공식 문서에 이 제약을 명시한 문장은 **없다(UNVERIFIED)**.
+
+결과적으로 **데모만으로는 펀딩 공식(§6 PARTIAL)을 검증할 수 없다.** 요율과 마크가격 두 미지수에 방정식이 하나뿐이기 때문이다.
+
+대응: `verify-funding --allow-production-rates` 로 공개 프로덕션 요율을 대입하되, 두 환경이 같은 가격을 매기는지를 `environments_agree()` 로 **측정해서 함께 보고**한다. 두 환경이 어긋나면 그 대입은 신뢰할 수 없으며 보고서에 그대로 표시된다. `premiumIndex.lastFundingRate` 는 **다음** 정산 예정 요율이라 대체 소스로 쓰지 않는다 — 거짓 VERIFIED 를 만들 수 있다.

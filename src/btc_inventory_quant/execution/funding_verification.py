@@ -87,7 +87,12 @@ class FundingVerification:
     # diagnostics — a NO_DATA verdict has to say WHICH side was empty, otherwise the operator
     # cannot tell "no settlement happened" from "the rate endpoint returned nothing"
     income_times: tuple[datetime, ...] = ()
+    income_amounts: tuple[Decimal, ...] = ()
     rate_times: tuple[datetime, ...] = ()
+    rate_source: str = ""
+    environments_agree: bool | None = None
+    mark_here: Decimal | None = None
+    mark_production: Decimal | None = None
     skipped_no_rate: tuple[datetime, ...] = ()
     skipped_no_position: tuple[datetime, ...] = ()
 
@@ -146,8 +151,21 @@ class FundingVerification:
             "formula": "funding_btc = -sign(c) * |c| * contract_value_usd / mark_price * rate",
             "resolves_partial": self.verdict == "VERIFIED" and self.samples >= 1,
             "diagnosis": self.diagnosis,
+            "rate_source": self.rate_source,
+            "rate_source_caveat": (
+                None
+                if self.rate_source in ("", self.environment)
+                else (
+                    f"rates taken from '{self.rate_source}' because '{self.environment}' publishes "
+                    "no funding history; sound only while the two price the instrument alike"
+                )
+            ),
+            "environments_agree": self.environments_agree,
+            "mark_configured": None if self.mark_here is None else str(self.mark_here),
+            "mark_production": None if self.mark_production is None else str(self.mark_production),
             "diagnostics": {
                 "income_records": [t.isoformat() for t in self.income_times],
+                "income_amounts_btc": [str(a) for a in self.income_amounts],
                 "rate_rows": [t.isoformat() for t in self.rate_times],
                 "skipped_no_rate": [t.isoformat() for t in self.skipped_no_rate],
                 "skipped_no_position": [t.isoformat() for t in self.skipped_no_position],
@@ -166,6 +184,41 @@ def _parse_rate_rows(
         mark = None if mark_raw in (None, "", "0") else Decimal(str(mark_raw))
         out[ts] = (Decimal(str(row["fundingRate"])), mark)
     return out
+
+
+def _production_rates(
+    symbol: str, start_ms: int, end_ms: int
+) -> dict[datetime, tuple[Decimal, Decimal | None]]:
+    """Public funding history from the production host, for environments that publish none.
+
+    Measured on 2026-09-03: the demo host settles funding (the FUNDING_FEE income record exists)
+    but ``GET /dapi/v1/fundingRate`` returns an empty list there, with or without a time filter.
+    The rate is public market data, so production can supply it — but ONLY if the two environments
+    price the same instrument the same way, which :func:`environments_agree` measures rather than
+    assumes. No credentials are used for this call.
+    """
+    from btc_inventory_quant.exchange.binance_coinm import BinanceCoinMAdapter
+
+    public = BinanceCoinMAdapter(environment="production")
+    return _parse_rate_rows(public.funding_rate_history(symbol, start_ms=start_ms, end_ms=end_ms))
+
+
+def environments_agree(
+    exchange: ExchangeAdapter, symbol: str, tolerance: Decimal = Decimal("0.002")
+) -> tuple[bool, Decimal, Decimal]:
+    """Do the configured environment and production quote the same mark right now?
+
+    Substituting a production funding rate into a demo settlement is only sound if the two price
+    the same instrument alike. This compares the live marks and returns (agree, configured, prod);
+    a disagreement means the substitution must not be trusted.
+    """
+    from btc_inventory_quant.exchange.binance_coinm import BinanceCoinMAdapter
+
+    here = exchange.premium_index(symbol).mark_price
+    there = BinanceCoinMAdapter(environment="production").premium_index(symbol).mark_price
+    if here <= ZERO or there <= ZERO:
+        return False, here, there
+    return abs(here - there) / there <= tolerance, here, there
 
 
 def _rates_and_marks(
@@ -191,6 +244,20 @@ def _rates_and_marks(
     return {ts: v for ts, v in recent.items() if lo <= ts <= hi}
 
 
+def _resolve_rates(
+    exchange: ExchangeAdapter,
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+    allow_production_rates: bool,
+) -> tuple[dict[datetime, tuple[Decimal, Decimal | None]], str]:
+    rates = _rates_and_marks(exchange, symbol, start_ms, end_ms)
+    if rates or not allow_production_rates or exchange.environment == "production":
+        return rates, exchange.environment
+    log.warning("funding_rate_absent_falling_back_to_production", extra={"symbol": symbol})
+    return _production_rates(symbol, start_ms, end_ms), "production"
+
+
 def verify_funding(
     exchange: ExchangeAdapter,
     spec: ContractSpec,
@@ -199,6 +266,7 @@ def verify_funding(
     contracts: Decimal | None = None,
     contracts_at: dict[datetime, Decimal] | None = None,
     now: datetime | None = None,
+    allow_production_rates: bool = False,
 ) -> FundingVerification:
     """Compare every FUNDING_FEE in the window against the modelled amount."""
     end = now or datetime.now(tz=UTC)
@@ -208,7 +276,12 @@ def verify_funding(
     records: list[IncomeRecord] = exchange.income(
         symbol=symbol, income_type="FUNDING_FEE", start_ms=start_ms, end_ms=end_ms
     )
-    rates = _rates_and_marks(exchange, symbol, start_ms, end_ms)
+    rates, rate_source = _resolve_rates(exchange, symbol, start_ms, end_ms, allow_production_rates)
+    agree: bool | None = None
+    mark_here: Decimal | None = None
+    mark_prod: Decimal | None = None
+    if rate_source != exchange.environment:
+        agree, mark_here, mark_prod = environments_agree(exchange, symbol)
 
     fallback_contracts: Decimal | None = contracts
     fallback_source = "cli"
@@ -220,6 +293,7 @@ def verify_funding(
 
     checks: list[SettlementCheck] = []
     income_times: list[datetime] = []
+    income_amounts: list[Decimal] = []
     skipped_no_rate: list[datetime] = []
     skipped_no_position: list[datetime] = []
     for r in records:
@@ -227,6 +301,7 @@ def verify_funding(
             continue
         ts = r.time.replace(minute=0, second=0, microsecond=0)
         income_times.append(ts)
+        income_amounts.append(r.amount)
         if ts not in rates:
             log.warning("funding_verify_no_rate", extra={"funding_time": ts.isoformat()})
             skipped_no_rate.append(ts)
@@ -265,7 +340,12 @@ def verify_funding(
         symbol=symbol,
         environment=exchange.environment,
         income_times=tuple(sorted(income_times)),
+        income_amounts=tuple(income_amounts),
         rate_times=tuple(sorted(rates)),
+        rate_source=rate_source,
+        environments_agree=agree,
+        mark_here=mark_here,
+        mark_production=mark_prod,
         skipped_no_rate=tuple(sorted(skipped_no_rate)),
         skipped_no_position=tuple(sorted(skipped_no_position)),
     )

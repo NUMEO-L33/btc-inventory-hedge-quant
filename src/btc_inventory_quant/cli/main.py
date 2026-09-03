@@ -152,6 +152,7 @@ def cmd_ops(args: argparse.Namespace) -> int:
             ack=getattr(args, "ack", "") or "",
             window_hours=getattr(args, "window_hours", 48),
             contracts=getattr(args, "contracts", "") or "",
+            allow_production_rates=getattr(args, "allow_production_rates", False),
         )
     )
 
@@ -243,6 +244,13 @@ def build_parser() -> argparse.ArgumentParser:
                 default="",
                 help="position size held during the window (signed; negative = short). "
                 "Omit to read the current exchange position, which assumes it never changed.",
+            )
+            o.add_argument(
+                "--allow-production-rates",
+                action="store_true",
+                help="if the configured environment publishes no funding history (the demo host "
+                "does not), take the public rates from production. Only sound while both price "
+                "the instrument alike, which the report measures and states.",
             )
         if op == "safe-hold":
             o.add_argument(

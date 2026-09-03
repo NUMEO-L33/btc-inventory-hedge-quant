@@ -322,3 +322,134 @@ def test_unfiltered_fallback_still_respects_the_window(spec: ContractSpec) -> No
     r = verify_funding(ex, spec, "BTCUSD_PERP", window_hours=6, now=NOW)  # type: ignore[arg-type]
     assert r.verdict == "NO_DATA"
     assert r.to_dict()["diagnostics"]["rate_rows"] == []
+
+
+def test_income_amounts_are_reported_for_diagnosis(spec: ContractSpec) -> None:
+    """Without the amount the operator cannot reason about a NO_DATA at all."""
+
+    class NoRates(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            return []
+
+    ts = NOW - timedelta(hours=2)
+    r = verify_funding(
+        NoRates([(ts, "0.0001", "60000", "0.00000012")]),  # type: ignore[arg-type]
+        spec,
+        "BTCUSD_PERP",
+        now=NOW,
+    )
+    # Decimal renders small magnitudes in scientific form; the string must stay lossless
+    reported = r.to_dict()["diagnostics"]["income_amounts_btc"]
+    assert [D(x) for x in reported] == [D("0.00000012")]
+
+
+def test_production_fallback_is_off_by_default(spec: ContractSpec, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A silent cross-environment substitution would be a trap; it must be opt-in."""
+    import btc_inventory_quant.execution.funding_verification as fv
+
+    called = False
+
+    def _boom(*a: Any, **k: Any) -> Any:
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(fv, "_production_rates", _boom)
+
+    class NoRates(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            return []
+
+    ts = NOW - timedelta(hours=2)
+    r = verify_funding(
+        NoRates([(ts, "0.0001", "60000", "0.0000001")]),  # type: ignore[arg-type]
+        spec,
+        "BTCUSD_PERP",
+        now=NOW,
+    )
+    assert called is False
+    assert r.rate_source == "demo"
+    assert r.to_dict()["rate_source_caveat"] is None
+
+
+def test_production_fallback_labels_the_source_and_records_agreement(
+    spec: ContractSpec,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    import btc_inventory_quant.execution.funding_verification as fv
+
+    ts = NOW - timedelta(hours=2)
+    amount = funding_payment_btc(D("-10"), CV, D("60000"), D("0.0001"))
+
+    class NoRates(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            return []
+
+    monkeypatch.setattr(fv, "_production_rates", lambda *a, **k: {ts: (D("0.0001"), D("60000"))})
+    monkeypatch.setattr(fv, "environments_agree", lambda *a, **k: (True, D("60000"), D("60005")))
+
+    r = verify_funding(
+        NoRates([(ts, "0.0001", "60000", str(amount))]),  # type: ignore[arg-type]
+        spec,
+        "BTCUSD_PERP",
+        now=NOW,
+        allow_production_rates=True,
+    )
+    assert r.verdict == "VERIFIED"
+    assert r.rate_source == "production"
+    d = r.to_dict()
+    assert "sound only while the two price the instrument alike" in d["rate_source_caveat"]
+    assert d["environments_agree"] is True
+    assert d["mark_configured"] == "60000" and d["mark_production"] == "60005"
+
+
+def test_disagreeing_environments_are_flagged_even_when_amounts_match(
+    spec: ContractSpec,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """A VERIFIED built on a substituted rate must still show the substitution was unsound."""
+    import btc_inventory_quant.execution.funding_verification as fv
+
+    ts = NOW - timedelta(hours=2)
+    amount = funding_payment_btc(D("-10"), CV, D("60000"), D("0.0001"))
+
+    class NoRates(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            return []
+
+    monkeypatch.setattr(fv, "_production_rates", lambda *a, **k: {ts: (D("0.0001"), D("60000"))})
+    monkeypatch.setattr(fv, "environments_agree", lambda *a, **k: (False, D("60000"), D("71000")))
+
+    r = verify_funding(
+        NoRates([(ts, "0.0001", "60000", str(amount))]),  # type: ignore[arg-type]
+        spec,
+        "BTCUSD_PERP",
+        now=NOW,
+        allow_production_rates=True,
+    )
+    assert r.verdict == "VERIFIED"  # the arithmetic matched...
+    assert r.to_dict()["environments_agree"] is False  # ...but the inputs came from elsewhere
