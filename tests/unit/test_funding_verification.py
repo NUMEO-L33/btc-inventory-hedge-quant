@@ -244,3 +244,81 @@ def test_report_dict_carries_the_formula_and_environment(spec: ContractSpec) -> 
     assert "mark_price" in d["formula"]
     assert d["settlements"][0]["contracts_source"].startswith("current exchange position")
     assert pytest.approx(float(d["settlements"][0]["difference_btc"]), abs=1e-12) == 0.0
+
+
+def test_no_data_diagnosis_names_the_missing_side(spec: ContractSpec) -> None:
+    """A NO_DATA verdict must say WHICH side was empty — that is what the operator acts on."""
+    empty = verify_funding(FakeExchange([]), spec, "BTCUSD_PERP", now=NOW)  # type: ignore[arg-type]
+    assert "no FUNDING_FEE income" in empty.diagnosis
+    assert empty.to_dict()["diagnostics"]["income_records"] == []
+
+
+def test_income_without_a_matching_rate_is_diagnosed(spec: ContractSpec) -> None:
+    """The real demo failure: the settlement exists but fundingRate history has no row for it."""
+
+    class NoRates(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            return []
+
+    ts = NOW - timedelta(hours=2)
+    r = verify_funding(
+        NoRates([(ts, "0.0001", "60000", "0.0000001")]),  # type: ignore[arg-type]
+        spec,
+        "BTCUSD_PERP",
+        now=NOW,
+    )
+    assert r.verdict == "NO_DATA"
+    assert "fundingRate history returned no matching rate" in r.diagnosis
+    d = r.to_dict()["diagnostics"]
+    assert d["income_records"] == [ts.isoformat()]
+    assert d["skipped_no_rate"] == [ts.isoformat()]
+    assert d["rate_rows"] == []
+
+
+def test_windowed_rate_query_falls_back_to_unfiltered(spec: ContractSpec) -> None:
+    """Demo hosts may ignore startTime/endTime; the unfiltered retry must still find the row."""
+
+    class WindowIgnoring(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            if start_ms is not None or end_ms is not None:
+                return []  # windowed query yields nothing
+            return super().funding_rate_history(symbol, limit=limit)
+
+    ex = WindowIgnoring([_truthful(NOW - timedelta(hours=2), "0.0001", "60000")])
+    r = verify_funding(ex, spec, "BTCUSD_PERP", now=NOW)  # type: ignore[arg-type]
+    assert r.verdict == "VERIFIED"
+    assert r.samples == 1
+
+
+def test_unfiltered_fallback_still_respects_the_window(spec: ContractSpec) -> None:
+    """The fallback must not smuggle in settlements from outside the requested window."""
+
+    class WindowIgnoring(FakeExchange):
+        def funding_rate_history(
+            self,
+            symbol: str,
+            start_ms: int | None = None,
+            end_ms: int | None = None,
+            limit: int = 1000,
+        ) -> list[dict[str, Any]]:
+            if start_ms is not None or end_ms is not None:
+                return []
+            return super().funding_rate_history(symbol, limit=limit)
+
+    old = NOW - timedelta(hours=40)  # outside a 6-hour window
+    ex = WindowIgnoring([_truthful(old, "0.0001", "60000")])
+    r = verify_funding(ex, spec, "BTCUSD_PERP", window_hours=6, now=NOW)  # type: ignore[arg-type]
+    assert r.verdict == "NO_DATA"
+    assert r.to_dict()["diagnostics"]["rate_rows"] == []

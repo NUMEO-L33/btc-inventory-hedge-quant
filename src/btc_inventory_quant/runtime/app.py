@@ -371,10 +371,7 @@ def ops_command(
         )
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
         if result.verdict == "NO_DATA":
-            print(
-                "\nNo FUNDING_FEE settled in this window. Hold a position across 00:00/08:00/16:00 "
-                "UTC and re-run; widen with --window-hours if the settlement was longer ago."
-            )
+            print(f"\nNO_DATA — {result.diagnosis}")
             return 2
         if result.verdict == "VERIFIED":
             print(

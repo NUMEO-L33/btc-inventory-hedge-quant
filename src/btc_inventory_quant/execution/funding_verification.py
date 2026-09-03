@@ -84,6 +84,35 @@ class FundingVerification:
     window_hours: int
     symbol: str
     environment: str
+    # diagnostics — a NO_DATA verdict has to say WHICH side was empty, otherwise the operator
+    # cannot tell "no settlement happened" from "the rate endpoint returned nothing"
+    income_times: tuple[datetime, ...] = ()
+    rate_times: tuple[datetime, ...] = ()
+    skipped_no_rate: tuple[datetime, ...] = ()
+    skipped_no_position: tuple[datetime, ...] = ()
+
+    @property
+    def diagnosis(self) -> str:
+        if self.checks:
+            return "settlements matched"
+        if not self.income_times:
+            return (
+                "no FUNDING_FEE income in the window — either no settlement occurred while a "
+                "position was open, or the window is too short"
+            )
+        if self.skipped_no_rate:
+            return (
+                f"{len(self.skipped_no_rate)} settlement(s) found in income, but fundingRate "
+                f"history returned no matching rate ({len(self.rate_times)} rate row(s) in the "
+                "window). The demo fundingRate endpoint may be sparse or lag the settlement — "
+                "retry in a few minutes, or widen --window-hours"
+            )
+        if self.skipped_no_position:
+            return (
+                "settlements and rates matched, but the position size could not be determined "
+                "(flat position now?). Re-run with --contracts <signed size held at settlement>"
+            )
+        return "unknown"
 
     @property
     def samples(self) -> int:
@@ -116,20 +145,50 @@ class FundingVerification:
             "verdict": self.verdict,
             "formula": "funding_btc = -sign(c) * |c| * contract_value_usd / mark_price * rate",
             "resolves_partial": self.verdict == "VERIFIED" and self.samples >= 1,
+            "diagnosis": self.diagnosis,
+            "diagnostics": {
+                "income_records": [t.isoformat() for t in self.income_times],
+                "rate_rows": [t.isoformat() for t in self.rate_times],
+                "skipped_no_rate": [t.isoformat() for t in self.skipped_no_rate],
+                "skipped_no_position": [t.isoformat() for t in self.skipped_no_position],
+            },
             "settlements": [c.to_dict() for c in self.checks],
         }
 
 
-def _rates_and_marks(
-    exchange: ExchangeAdapter, symbol: str, start_ms: int, end_ms: int
+def _parse_rate_rows(
+    rows: list[dict[str, Any]],
 ) -> dict[datetime, tuple[Decimal, Decimal | None]]:
     out: dict[datetime, tuple[Decimal, Decimal | None]] = {}
-    for row in exchange.funding_rate_history(symbol, start_ms=start_ms, end_ms=end_ms):
+    for row in rows:
         ts = normalise_funding_time(int(str(row["fundingTime"])))
         mark_raw = row.get("markPrice")
         mark = None if mark_raw in (None, "", "0") else Decimal(str(mark_raw))
         out[ts] = (Decimal(str(row["fundingRate"])), mark)
     return out
+
+
+def _rates_and_marks(
+    exchange: ExchangeAdapter, symbol: str, start_ms: int, end_ms: int
+) -> dict[datetime, tuple[Decimal, Decimal | None]]:
+    """Settled rates in the window.
+
+    Some environments (the demo host in particular) return nothing when ``startTime``/``endTime``
+    are supplied, or publish the row for a just-completed settlement only after a delay. When the
+    windowed query comes back empty, retry WITHOUT the time filter — the endpoint then returns the
+    most recent rows — and filter client-side. Same endpoint and same data either way, so this is
+    a pagination workaround, not a change of source.
+    """
+    windowed = _parse_rate_rows(
+        exchange.funding_rate_history(symbol, start_ms=start_ms, end_ms=end_ms)
+    )
+    if windowed:
+        return windowed
+    log.warning("funding_rate_window_empty_retrying_unfiltered", extra={"symbol": symbol})
+    recent = _parse_rate_rows(exchange.funding_rate_history(symbol, limit=200))
+    lo = datetime.fromtimestamp(start_ms / 1000, tz=UTC)
+    hi = datetime.fromtimestamp(end_ms / 1000, tz=UTC)
+    return {ts: v for ts, v in recent.items() if lo <= ts <= hi}
 
 
 def verify_funding(
@@ -160,12 +219,17 @@ def verify_funding(
             fallback_source = "current exchange position (assumes it did not change)"
 
     checks: list[SettlementCheck] = []
+    income_times: list[datetime] = []
+    skipped_no_rate: list[datetime] = []
+    skipped_no_position: list[datetime] = []
     for r in records:
         if r.time is None:
             continue
         ts = r.time.replace(minute=0, second=0, microsecond=0)
+        income_times.append(ts)
         if ts not in rates:
             log.warning("funding_verify_no_rate", extra={"funding_time": ts.isoformat()})
+            skipped_no_rate.append(ts)
             continue
         rate, mark = rates[ts]
         if mark is None:
@@ -179,6 +243,7 @@ def verify_funding(
             size, size_source = contracts_at[ts], "stored position snapshot"
         if size is None or size == ZERO:
             log.warning("funding_verify_no_position", extra={"funding_time": ts.isoformat()})
+            skipped_no_position.append(ts)
             continue
 
         checks.append(
@@ -199,6 +264,10 @@ def verify_funding(
         window_hours=window_hours,
         symbol=symbol,
         environment=exchange.environment,
+        income_times=tuple(sorted(income_times)),
+        rate_times=tuple(sorted(rates)),
+        skipped_no_rate=tuple(sorted(skipped_no_rate)),
+        skipped_no_position=tuple(sorted(skipped_no_position)),
     )
 
 
