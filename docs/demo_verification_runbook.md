@@ -54,7 +54,7 @@ python -m btc_inventory_quant testnet --config configs/testnet.yaml --once
 | 항목 | 기대 | 의미 |
 |---|---|---|
 | `contract_spec` | `contractSize: 100` | ③ 계약사양 실서버 확인 |
-| `commission_rates` | maker/taker 실제 값 | ③ 해소 — 백테스트의 0.05%/0.02% 와 비교 |
+| `commission` | `actual_taker` vs `assumed_taker`, `taker_drift_pct`, `backtest_assumption_ok` | ③ 해소 — 백테스트 가정과 자동 대조 |
 | `position_mode` | `ONE_WAY` | 아니면 거래소 UI 에서 변경 |
 | `account.canTrade` | `true` | 키 권한 정상 |
 

@@ -436,3 +436,40 @@ def test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest(
     live_ratio = np.array([float(r.effective_ratio) for r in results])
     engine_ratio = eng.daily["current_ratio_at_open"].astype(float).to_numpy()[: len(results)]
     np.testing.assert_allclose(live_ratio, engine_ratio, atol=1e-6)
+
+
+def test_startup_report_states_live_fees_against_the_backtest_assumption(tmp_path: Path) -> None:
+    """Fees drove 92% of the V4 'edge', so a drift from the modelled rate must be visible at start."""
+    from btc_inventory_quant.exchange.models import CommissionRates
+
+    harness = Harness(tmp_path)
+    trader = harness.build_trader()
+    exchange = harness.exchange
+
+    # the account charges 20% less than the backtest assumed
+    exchange.commission_rates = lambda symbol: CommissionRates(  # type: ignore[assignment,method-assign]
+        symbol=symbol, maker=D("0.00016"), taker=D("0.0004")
+    )
+    report = trader._commission_report()
+    assert report["assumed_taker"] == "0.0005"
+    assert report["actual_taker"] == "0.0004"
+    assert report["taker_drift_pct"] == "-20.00"
+    assert report["backtest_assumption_ok"] is False
+    assert report["direction"] == "conservative"
+
+    # matching rates pass
+    exchange.commission_rates = lambda symbol: CommissionRates(  # type: ignore[assignment,method-assign]
+        symbol=symbol, maker=D("0.0002"), taker=D("0.0005")
+    )
+    assert trader._commission_report()["backtest_assumption_ok"] is True
+
+    # an exchange that cannot report them must not break startup
+    from btc_inventory_quant.exchange.base import ExchangeError
+
+    def _boom(symbol: str) -> CommissionRates:
+        raise ExchangeError("not supported here")
+
+    exchange.commission_rates = _boom  # type: ignore[assignment,method-assign]
+    degraded = trader._commission_report()
+    assert degraded["actual"] is None
+    assert "not supported" in degraded["error"]

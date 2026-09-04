@@ -142,6 +142,7 @@ class Trader:
         report["contract_spec"] = spec_check.code
         if not spec_check.ok:
             self._engage("contract specification changed", {"detail": spec_check.message})
+        report["commission"] = self._commission_report()
         recovery = self.order_manager.recover()
         report["order_recovery"] = recovery
         if recovery["unresolved"] or recovery["unknown_exchange_orders"]:
@@ -529,6 +530,37 @@ class Trader:
         if callable(sync):
             return int(sync())
         return 0
+
+    def _commission_report(self) -> dict[str, Any]:
+        """Live fee rates vs the ones the backtest assumed.
+
+        Fees are not a rounding detail here: the V4 control study found that 92% of the apparent
+        edge of a static hedge over a random one was transaction costs
+        (``docs/strategy_v4_control_arms.md`` §5). If the account's real rates differ from the
+        modelled 0.05%/0.02%, every cost-sensitive conclusion shifts with them, so the startup
+        report states both and flags a material gap rather than leaving it to be noticed later.
+        """
+        cost = self.config.backtest.cost
+        out: dict[str, Any] = {
+            "assumed_taker": str(cost.taker_fee_rate),
+            "assumed_maker": str(cost.maker_fee_rate),
+        }
+        try:
+            rates = self.exchange.commission_rates(self.symbol)
+        except (ExchangeError, NotImplementedError, AttributeError) as exc:
+            out["actual"] = None
+            out["error"] = str(exc)
+            return out
+        out["actual_taker"] = str(rates.taker)
+        out["actual_maker"] = str(rates.maker)
+        if cost.taker_fee_rate > 0:
+            drift = (rates.taker - cost.taker_fee_rate) / cost.taker_fee_rate
+            out["taker_drift_pct"] = f"{drift * 100:.2f}"
+            # 10% off is enough to move a cost-dominated result; conservative (actual < assumed)
+            # is reported too, because a backtest that overcharged is also mis-specified
+            out["backtest_assumption_ok"] = abs(drift) <= Decimal("0.10")
+            out["direction"] = "conservative" if rates.taker < cost.taker_fee_rate else "optimistic"
+        return out
 
     def _engage(self, reason: str, details: dict[str, Any] | None = None) -> None:
         self.kill_switch.engage(reason, details)
