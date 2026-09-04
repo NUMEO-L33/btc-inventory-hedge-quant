@@ -69,6 +69,7 @@ STATE_LAST_INCOME_SYNC_MS = "last_income_sync_ms"
 STATE_SAFE_HOLD_CANCELLED = "safe_hold_orders_cancelled"
 STATE_LAST_FUNDING_SETTLE_MS = "last_paper_funding_settle_ms"
 STATE_PREV_EQUITY = "prev_cycle_equity"
+STATE_PAPER_ACCOUNT = "paper_account"
 
 
 @dataclass(slots=True)
@@ -152,6 +153,7 @@ class Trader:
         report["order_recovery"] = recovery
         if recovery["unresolved"] or recovery["unknown_exchange_orders"]:
             self._engage("unresolved or unknown orders at startup", recovery)
+        self._restore_simulated_account()
         self.portfolio = self._load_portfolio(now)
         snap = self.reconciler.snapshot()
         mark = self._mark_price().mark_price
@@ -616,6 +618,27 @@ class Trader:
                 "saved_at": self.clock().isoformat(),
             },
         )
+        self._save_simulated_account()
+
+    def _restore_simulated_account(self) -> None:
+        """Bring a saved paper account back before anything reconciles against it."""
+        restore = getattr(self.exchange, "restore", None)
+        state = self.db.get_state(STATE_PAPER_ACCOUNT)
+        if callable(restore) and state:
+            restore(state)
+            log.info("paper account restored", fields={"contracts": state.get("contracts")})
+
+    def _save_simulated_account(self) -> None:
+        """Persist a simulated (paper) account alongside the ledger.
+
+        Shadow runs on an in-memory paper exchange, so without this a restart brings up an empty
+        account while the ledger still holds the position; reconciliation disagrees and the trader
+        engages SAFE_HOLD. With KeepAlive on the launchd agent that ends a multi-week observation
+        at the first restart — which is exactly what happened on 2026-09-04.
+        """
+        save = getattr(self.exchange, "state_dict", None)
+        if callable(save):
+            self.db.set_state(STATE_PAPER_ACCOUNT, save())
 
     def _record_internal_snapshot(
         self,

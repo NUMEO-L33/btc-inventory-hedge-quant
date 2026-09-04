@@ -14,7 +14,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from btc_inventory_quant.domain.inverse_contract import ContractSpec, OrderSide, funding_payment_btc
-from btc_inventory_quant.domain.position import InversePosition, PositionFlipError
+from btc_inventory_quant.domain.position import InversePosition, Lot, PositionFlipError
 from btc_inventory_quant.exchange.base import (
     ExchangeAPIError,
     ExchangeError,
@@ -190,6 +190,7 @@ class PaperExchange:
         self._ids = itertools.count(1)
         self.position_mode_value = PositionMode.ONE_WAY
         self.leverage = 1
+
         self.margin_type = "cross"
         # fault injection (tests)
         self.fail_next_place: list[Exception] = []
@@ -202,6 +203,47 @@ class PaperExchange:
         self.query_failures: int = 0  # raise ExchangeTimeout on the next N query_order calls
         self.listen_key = "paperlistenkey"
         self._settled_funding_times: set[int] = set()
+
+    # ------------------------------------------------------------------ persistence
+    # The simulated account lives in memory, so without this a restart resets it to flat while
+    # the database still holds the real position — reconciliation then disagrees and the trader
+    # engages SAFE_HOLD. Observed on the first shadow restart (2026-09-04): 162 contracts in the
+    # ledger against a freshly-empty paper account. With KeepAlive on the launchd agent, that
+    # would end a multi-week observation at the first crash.
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "wallet_balance": str(self.wallet_balance),
+            "contracts": str(self.position.contracts),
+            "avg_entry_price": (
+                None
+                if self.position.avg_entry_price is None
+                else str(self.position.avg_entry_price)
+            ),
+            "lots": [{"qty": str(lot.qty), "price": str(lot.price)} for lot in self.position.lots],
+        }
+
+    def restore(self, state: dict[str, Any]) -> None:
+        """Reload a previously saved simulated account. Unknown/partial state is refused."""
+        try:
+            wallet = Decimal(str(state["wallet_balance"]))
+            contracts = Decimal(str(state["contracts"]))
+            entry_raw = state.get("avg_entry_price")
+            lots = [
+                Lot(qty=Decimal(str(x["qty"])), price=Decimal(str(x["price"])))
+                for x in state.get("lots", [])
+            ]
+        except (KeyError, TypeError, ArithmeticError, ValueError) as exc:
+            raise ExchangeError(f"cannot restore paper account: {exc}") from exc
+        if contracts > 0:
+            raise ExchangeError(
+                f"refusing to restore a LONG paper position ({contracts}); this account is "
+                "short-only and a long would mean the saved state is not ours"
+            )
+        self.wallet_balance = wallet
+        self.position = InversePosition(spec=self.spec, allow_long=False)
+        self.position.contracts = contracts
+        self.position.avg_entry_price = None if entry_raw is None else Decimal(str(entry_raw))
+        self.position.lots = lots
 
     # ------------------------------------------------------------ market data
     @property

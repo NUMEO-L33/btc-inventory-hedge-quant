@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 
 from btc_inventory_quant.backtest.engine import BacktestEngine
 from btc_inventory_quant.config.schema import AppConfig, CostModelConfig, RegimeHedgeParams, RunMode
 from btc_inventory_quant.config.settings import Settings
 from btc_inventory_quant.domain.inverse_contract import OrderSide
+from btc_inventory_quant.exchange.base import ExchangeError
 from btc_inventory_quant.exchange.paper import PaperExchange, ReplayMarketData
 from btc_inventory_quant.execution.order_manager import OrderManager
 from btc_inventory_quant.execution.policies import MarketExecution
@@ -464,8 +466,6 @@ def test_startup_report_states_live_fees_against_the_backtest_assumption(tmp_pat
     assert trader._commission_report()["backtest_assumption_ok"] is True
 
     # an exchange that cannot report them must not break startup
-    from btc_inventory_quant.exchange.base import ExchangeError
-
     def _boom(symbol: str) -> CommissionRates:
         raise ExchangeError("not supported here")
 
@@ -509,3 +509,44 @@ def test_metrics_report_the_hedge_ratio_after_the_fill_not_before(tmp_path: Path
     assert m.hedge_ratio_error is not None
     # within the min-rebalance band, not the -target a stale pre-trade ratio would produce
     assert abs(D(str(m.hedge_ratio_error))) < D("0.11")
+
+
+def test_paper_account_survives_a_restart_instead_of_engaging_safe_hold(tmp_path: Path) -> None:
+    """Observed 2026-09-04, 7 minutes into the first shadow run.
+
+    The paper exchange lives in memory. On restart it came up flat while the ledger still held 162
+    contracts, reconciliation disagreed, and the trader engaged SAFE_HOLD — with KeepAlive on the
+    launchd agent that would end a multi-week observation at the first restart.
+    """
+    h = Harness(tmp_path)
+    trader = h.build_trader()
+    trader.start()
+    (first,) = h.run_days(WARMUP + 1, 1)
+    assert first.action == "rebalance"
+    held = h.exchange.position.contracts
+    assert held < 0  # a real short is open
+
+    # restart: fresh in-memory exchange and a fresh trader against the SAME database
+    h.new_exchange()
+    assert h.exchange.position.contracts == D("0")  # the simulated account really did reset
+    restarted = h.build_trader()
+    report = restarted.start()
+
+    assert report["portfolio"] == "reconciled"
+    assert not restarted.kill_switch.engaged
+    assert h.exchange.position.contracts == held  # restored, not re-adopted at zero
+
+
+def test_a_long_paper_state_is_refused_rather_than_loaded(tmp_path: Path) -> None:
+    """This account is short-only; a saved long means the state is not ours."""
+    h = Harness(tmp_path)
+    h.build_trader()
+    with pytest.raises(ExchangeError, match="short-only"):
+        h.exchange.restore({"wallet_balance": "1", "contracts": "5", "avg_entry_price": "30000"})
+
+
+def test_corrupt_paper_state_is_refused(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    h.build_trader()
+    with pytest.raises(ExchangeError, match="cannot restore"):
+        h.exchange.restore({"wallet_balance": "not-a-number", "contracts": "-1"})
