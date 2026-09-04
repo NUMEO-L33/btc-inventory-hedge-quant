@@ -381,9 +381,12 @@ def verify_funding(
         rate, mark = rates[ts]
         if mark is None:
             mark = exchange.premium_index(symbol).mark_price
-            mark_source = "premium_index (record carried no markPrice)"
+            mark_source = "premium_index now (rate source carried no markPrice)"
         else:
-            mark_source = "fundingRate record"
+            # the mark travels with the rate, so it comes from whichever source supplied it —
+            # labelling it "fundingRate record" when it actually came from a pre-settlement
+            # snapshot would misreport where the number originated
+            mark_source = rate_source
 
         size, size_source = fallback_contracts, fallback_source
         if contracts_at and ts in contracts_at:

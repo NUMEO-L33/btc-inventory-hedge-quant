@@ -37,7 +37,7 @@
 |---|---|---|
 | look-ahead 금지, 다음 캔들 시가 체결 | ✅ | `backtest/engine.py`, `test_signal_executes_on_next_open_never_same_candle`, `test_truncating_future_data_does_not_change_the_past` |
 | 체결가/마크/인덱스/펀딩/사양/수수료 데이터 분리 | ✅ | `data/market_data.py`(trade·mark·index), `funding_data.py`, `exchange_info.json`, `CostModelConfig` |
-| 펀딩·수수료 공식 공식 문서 확인 | 🟡 | 수수료 VERIFIED(공식 예시 검산 테스트), 펀딩 "÷Mark Price" COIN-M 원문 미발견 → PARTIAL, `Reconciler.verify_funding_formula` 로 실측 역검증 |
+| 펀딩·수수료 공식 공식 문서 확인 | ✅ | 수수료 VERIFIED(공식 예시 검산). 펀딩 "÷Mark Price" 는 원문 미발견이나 **2026-09-04 실제 정산 대조로 VERIFIED(±8.12%)** — `verify-funding`, `docs/inverse_math.md` §6 |
 | 계약 사양 변경 이력 | 🟡 | 확인 불가 → 현재 사양 고정, `docs/backtest_methodology.md` §7 한계 명시 |
 | Maker/Taker/슬리피지/펀딩/부분체결/미체결 재주문/반올림 | ✅ | `execution_model.py`, `funding_model.py`, `test_missed_rebalance_and_partial_fill_scenarios`, `test_target_contracts_floors…` |
 | 보수적 Taker 기본 | ✅ | `use_maker: false` |
@@ -182,11 +182,12 @@
 | 검정력 한계 자백 | ✅ 명시 | 시드 200의 p 하한 0.00498 > 보정 α 0.00341 → **원리적으로 보정 유의 탐지 불가**. `docs/strategy_v4_control_arms.md` §4 |
 
 ## 남은 미검증·한계 (요약)
-1. 데모/실서버 실접속 스모크 테스트 미실행(개발 환경 네트워크 제약).
-2. 펀딩 명목가치 공식 COIN-M 원문 PARTIAL → 실측 역검증 필요.
+1. ~~데모/실서버 실접속 스모크 테스트 미실행~~ → **2026-09-02 완료** (주문 제출·체결·WS 스트림, `docs/exchange_api_verification.md` §16).
+2. ~~펀딩 명목가치 공식 COIN-M 원문 PARTIAL~~ → **2026-09-04 실측 VERIFIED (±8.12%)**. 원문은 여전히 미발견이나 실제 정산과 대조 완료 — `docs/inverse_math.md` §6. 8% 이내 미세 오차는 미배제(포지션 확대 시 개선).
 3. API 키 출금 권한은 수동 확인.
 4. Docker 이미지 빌드 미검증.
 5. 현재 VIP0 수수료율·BNB 할인 미확인(런타임 조회).
-6. WebSocket 은 로컬 서버 테스트로만 검증(실서버 미검증).
+6. ~~WebSocket 은 로컬 서버 테스트로만 검증~~ → **2026-09-02 실서버 연결 확인**(`user_data`, `mark_price`).
+6-1. **신규 UNVERIFIED**: 데모는 `fundingRate` 이력을 제공하지 않으며, 데모/프로덕션 요율이 다르다(2.9배 관측). 공식 문서에 명시 없음.
 7. V2~V4 결과는 2020-08-11~2026-09-01 스냅샷 1개(2,213 일봉)에 기반 — 단일 시장 사이클, 폭락 표본 1개.
 8. V4 대조군 검정은 시드 200으로 검정력이 부족하다(§V4). "효과 없음"이 아니라 "증거 없음"이다.

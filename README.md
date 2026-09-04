@@ -113,11 +113,12 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 
 ## 7. 알려진 한계 · 미검증 항목
 
-* 개발 환경에서 Binance 접속이 차단되어 **데모/실서버 실접속 스모크 테스트는 미실행**(어댑터는 공식 문서·모의 HTTP 로 검증). 사용자 환경에서 `testnet --once` 로 확인 필요.
-* 펀딩 금액 공식의 COIN-M 전용 원문(÷ Mark Price)은 공식 문서에서 찾지 못함(PARTIAL). Reconciliation 의 `verify_funding_formula` 로 실측 역검증.
+* ~~데모/실서버 실접속 미실행~~ → **2026-09-02 완료**: 주문 제출·MARKET 체결·`user_data`/`mark_price` 스트림 실서버 연결 확인(`docs/exchange_api_verification.md` §16).
+* **데모 환경은 `fundingRate` 이력을 제공하지 않고, 데모/프로덕션 요율이 다르다**(2.9배 관측). 공식 문서 미명시(신규 UNVERIFIED). 펀딩 검증은 `--snapshot-rate` 로 동일 환경 요율을 미리 잡아야 한다.
+* 펀딩 금액 공식(÷ Mark Price)의 COIN-M 원문은 여전히 미발견이나, **2026-09-04 실제 정산과 대조하여 VERIFIED(±8.12% 정밀도)** — `docs/inverse_math.md` §6. 거래소가 정산액을 8자리 절삭 보고하므로 소액 포지션에서는 이보다 정밀한 검증이 불가하며, 포지션을 키우면 개선된다.
 * 현재 VIP0 수수료율·COIN-M BNB 할인 여부 미확인 → 런타임 `commissionRate` 조회, 백테스트는 보수적 0.05%/0.02%.
 * 계약 사양 변경 이력 미반영(현재 사양 고정), 일봉 해상도 근사(펀딩 시각 마크가격), 슬리피지·부분체결은 모델값.
-* WebSocket 스트림(user data / markPrice)은 로컬 서버 테스트로만 검증(실서버 미검증). REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
+* WebSocket 스트림은 **2026-09-02 실서버 연결 확인**. REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
 * 머신러닝 없음(V1 범위 제외).
 
 ## 8. 보안
