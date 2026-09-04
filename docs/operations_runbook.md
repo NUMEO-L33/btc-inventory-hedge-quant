@@ -34,7 +34,25 @@ python -m btc_inventory_quant shadow --config configs/shadow.yaml            # �
 python -m btc_inventory_quant shadow --config configs/shadow.yaml --once     # 1회 사이클
 python -m btc_inventory_quant status --config configs/shadow.yaml
 ```
-확인 항목: `state/metrics_shadow.json` 의 헤지율·자산, DB `decisions` 테이블, 알림 로그. 최소 2~4주 관찰 후 다음 단계.
+상시 실행(macOS, 권장) — 로그인 시 자동 시작하고 죽으면 재시작한다:
+```bash
+bash scripts/install_shadow_agent.sh              # 설치 + 시작 (설정 사전 점검 포함)
+tail -f state/shadow.log                          # 로그
+bash scripts/install_shadow_agent.sh --uninstall  # 중지
+```
+Shadow 는 **API 키가 필요 없다** — 실시간 공개 시세를 읽고 계좌는 시뮬레이션이므로 실주문이 구조적으로 불가능하다.
+
+**주간 점검 항목** (`status --config configs/shadow.yaml`):
+
+| 필드 | 정상 | 이상하면 |
+|---|---|---|
+| `system_state` | `RUNNING` | `SAFE_HOLD` 면 `safe_hold_reason` 확인 |
+| `latest_decision.ts` | 최근 24시간 이내 | 오래됐으면 데몬이 멈춘 것 — `state/shadow.log` |
+| `latest_reconciliation.ok` | `true` | 내부 원장과 페이퍼 계좌 불일치 |
+| `unresolved_orders` | `[]` | 미확인 주문 잔존 |
+| `recent_events` | ERROR 없음 | 재연결·시세 지연 반복 여부 |
+
+**Shadow 가 알려주는 것과 아닌 것**: 20% 정적 헤지의 *성과*는 백테스트로 이미 안다. 여기서 새로 얻는 정보는 **운영 계층**이다 — 데몬이 몇 주간 살아남는가, 재연결이 되는가, 원장이 어긋나지 않는가. 최소 2~4주 관찰 후 다음 단계.
 
 ## 3. Testnet(데모)
 
