@@ -25,7 +25,12 @@ import pandas as pd
 from btc_inventory_quant.config.schema import AppConfig, RunMode
 from btc_inventory_quant.data.funding_features import attach_funding_features, rows_to_events
 from btc_inventory_quant.data.market_data import klines_frame
-from btc_inventory_quant.domain.inverse_contract import ZERO, ContractSpec, OrderSide
+from btc_inventory_quant.domain.inverse_contract import (
+    ZERO,
+    ContractSpec,
+    OrderSide,
+    effective_hedge_ratio,
+)
 from btc_inventory_quant.domain.portfolio import Portfolio
 from btc_inventory_quant.exchange.base import (
     ExchangeAdapter,
@@ -648,6 +653,17 @@ class Trader:
         assert self.portfolio is not None
         pf = self.portfolio
         totals = pf.ledger.totals()
+        # The caller's ``current_ratio`` is the PRE-trade ratio: the cycle computes it before
+        # deciding, and the decision record rightly stores it that way. Metrics must show the
+        # position as it stands NOW, so recompute from the portfolio after any fill — otherwise a
+        # rebalance from flat reports effective_hedge_ratio 0 and hedge_ratio_error −target while
+        # actually holding the full position, which reads as a permanent failure on a dashboard
+        # watched for weeks. Observed 2026-09-04: 162 contracts / 16,200 USD notional against
+        # 1 BTC equity reported as ratio 0.
+        if mark is not None and equity_btc is not None and equity_btc > ZERO:
+            current_ratio = effective_hedge_ratio(
+                pf.position.short_contracts, self.spec.contract_value_usd, equity_btc, mark
+            )
         equity_usd = None if equity_btc is None or mark is None else equity_btc * mark
         # daily PnL = change versus the previous cycle's equity (cycles are daily)
         prev = self.db.get_state(STATE_PREV_EQUITY) or {}

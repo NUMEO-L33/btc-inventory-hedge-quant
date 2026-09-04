@@ -473,3 +473,39 @@ def test_startup_report_states_live_fees_against_the_backtest_assumption(tmp_pat
     degraded = trader._commission_report()
     assert degraded["actual"] is None
     assert "not supported" in degraded["error"]
+
+
+def test_metrics_report_the_hedge_ratio_after_the_fill_not_before(tmp_path: Path) -> None:
+    """Observed 2026-09-04 in shadow: 162 contracts held, effective_hedge_ratio reported as 0.
+
+    The cycle computes current_ratio BEFORE deciding (the decision record wants it that way), and
+    that pre-trade value was being handed straight to the metrics. A rebalance from flat therefore
+    published ratio 0 and error -target while fully hedged — on a dashboard watched for weeks that
+    reads as a permanent failure.
+    """
+    harness = Harness(tmp_path)
+    trader = harness.build_trader()
+    trader.start()
+
+    # exactly ONE cycle, from flat: this is the only cycle where the bug shows, because from the
+    # second cycle onward the pre-trade ratio is already non-zero and hides the staleness
+    (result,) = harness.run_days(WARMUP + 1, 1)
+    assert result.action == "rebalance"
+
+    m = trader.metrics.current
+    assert m.short_contracts is not None and m.effective_hedge_ratio is not None
+    contracts = D(str(m.short_contracts))
+    ratio = D(str(m.effective_hedge_ratio))
+    assert contracts > 0  # we are holding a short
+    assert ratio > D("0.01")  # NOT the pre-trade zero
+
+    # and it must agree with the position it just took
+    expected = (
+        abs(contracts)
+        * harness.spec.contract_value_usd
+        / (D(str(m.equity_btc)) * D(str(m.mark_price)))
+    )
+    assert abs(ratio - expected) < D("1e-9")
+    assert m.hedge_ratio_error is not None
+    # within the min-rebalance band, not the -target a stale pre-trade ratio would produce
+    assert abs(D(str(m.hedge_ratio_error))) < D("0.11")
