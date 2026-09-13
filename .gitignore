@@ -33,10 +33,16 @@ reports/*/
 !reports/snapshot_diff/
 !reports/v3_static_ratio/
 !reports/v4_control_arms/
+!reports/v5_sample_extension/
 
-# data (raw data is committed for reproducibility only for the initial verified snapshot)
+# data (verified raw snapshots are committed for reproducibility: raw, raw_new, raw_usdtm)
 data/processed/
 data/cache/
+
+# transfer leftovers (never source of truth)
+*.zip
+*.tgz
+*.patch
 
 # OS
 .DS_Store

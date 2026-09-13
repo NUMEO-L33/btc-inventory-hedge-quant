@@ -3,13 +3,18 @@
 BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 규칙 기반으로 조절**하는 리서치·실행 시스템입니다.
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
-> **현재 상태(2026-09-02)**: 백테스트·과최적화 검증·Shadow·주문 관리·장애 복구·Live 게이트까지 구현 완료(MVP). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. 검증 결과 **V1 전략의 타이밍 알파는 확인되지 않았습니다** — 자세한 내용은 [docs/strategy_spec.md](docs/strategy_spec.md) §5 와 `reports/research_v1/research_report.md` 를 보세요.
+> **현재 상태(2026-09-13)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며 2~4주 운영 관찰이 목표입니다.
 >
-> **V2 연구 결과(2026-09-02)**: 펀딩 가드는 역펀딩 −1bp/8h 의 FAIL 을 PASS 로 복구하지만, 실제 과거 데이터의 개선분은 펀딩 절감이 아닌 방향성 잡음이라 **기본 비활성화**입니다. 같은 실험에서 **동적 레짐(V1)이 정적 고정 헤지보다 모든 축에서 열등함이 확인되어 기각**되었습니다 — [docs/strategy_v2.md](docs/strategy_v2.md).
+> **연구 결론 — 네 라운드가 같은 답으로 수렴했습니다.**
+> * **V1**: 타이밍 알파 미확인 — [docs/strategy_spec.md](docs/strategy_spec.md) §5
+> * **V2**: 동적 레짐이 정적 고정 헤지보다 모든 축에서 열등 → **기각**. 펀딩 가드는 기본 비활성화 — [docs/strategy_v2.md](docs/strategy_v2.md)
+> * **V3**: 정적 비율 0~85% 전수 탐색 결과 **최적 비율 부재**. 낙폭 1%p 당 약 0.33%(180일)의 BTC 를 내는 선형 가격표. 이 전략은 알파가 아니라 **보험**이며 표본에 폭락이 1~2건뿐이라 기대가치 검증 불가 — [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md)
+> * **V4**: 대조군(무작위·블록 셔플) 도입 후 **다중비교 보정을 통과한 효과 0건**. 보고했던 모든 승률의 Wilson 95% 구간이 0.5 를 포함 — [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md)
+> * **V5**: USDT-M 데이터로 폭락 표본을 늘리려 했으나 사전 등록한 프록시 관문 **3개 기준 모두 FAIL**(정산 6건 중 1건 꼴로 펀딩 부호가 반대). 본 분석을 실행하지 않고 중단. **표본 한계는 해결되지 않은 채 남습니다** — [docs/strategy_v5_sample_extension.md](docs/strategy_v5_sample_extension.md)
 >
-> **V3 연구 결과(2026-09-02)**: 남은 유일한 파라미터인 정적 비율을 0~85% 전수 탐색한 결과 **최적 비율은 존재하지 않습니다.** 낙폭 1%p 당 약 0.33%(180일)의 BTC를 내는 **선형 가격표**이며, 비율 선택은 최적화가 아니라 **위험 선호**입니다. 이 전략은 알파가 아니라 **보험**이고(7폴드 중 하락장 2폴드에서만 이익, 폭등장 폴드에서 BTC −51.5%), 표본에 폭락이 한 번뿐이라 기대가치를 검증할 수 없습니다 — [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md).
+> **정정(2026-09-11)**: V3 의 "모든 강건성 검사를 통과하는 구간 10~20%" 논거는 **PASS 조건이 2022년 폭락 하나의 함수**였음이 드러나 **철회**했습니다. 20% 는 유지하되, 근거는 **14개 시작일 창 전체에서 최종 BTC 가 시작 시점에 가장 덜 좌우되는 구간**(최고/최악 1.69배, 85% 는 9.91배)으로 교체 — V3 §10.
 >
-> **V4 연구 결과(2026-09-02)**: 대조군(무작위·셔플)을 처음 도입한 결과 **다중비교 보정 후 유의미한 것이 하나도 없습니다.** 보정 전 유의했던 2건은 **거래비용 회피 아티팩트**였고(5회 거래 vs 962회), 거래 수를 보존한 공정 대조군에서 `regime_hedge_v1` 의 타이밍은 **자기 신호를 무작위로 재배열한 것의 중앙값보다 못했습니다**(41 퍼센타일). 아울러 이 프로젝트가 보고했던 **모든 승률의 Wilson 95% 구간이 0.5를 포함**하여, V2 §6.1 의 근거 1건을 철회했습니다 — [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md).
+> **운영 인시던트(2026-09-05)**: 맥북 절전으로 WebSocket 이 `connected=True` 인 채 24.8시간 무음 → 킬스위치가 래치되어 **6일간 SAFE_HOLD, 알림 미도달**. 죽은 소켓 감지·회복 가능 조건의 래치 해제·외부 알림 채널로 수정. 회귀 테스트 10건은 수정 전 코드에서 실패함을 확인했으나 **현장 검증은 미완** — [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md)
 
 ## 1. 핵심 결과 한눈에 (2021-03-10 → 2026-09-01, 실데이터)
 
@@ -40,9 +45,9 @@ brew install python@3.12                                        # 없을 때만
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 119 tests (unit / integration / simulation)
+python -m pytest -q                                             # 214 tests (unit / integration / simulation)
 ```
-Shadow 모드를 로그인 시 자동 실행하려면 `scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist` 의 설치 절차(파일 상단 주석)를 따르세요.
+Shadow 상시 실행(macOS): `bash scripts/install_shadow_agent.sh` — 설정 사전 점검 후 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다. 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
 
 **Windows (PowerShell)**:
 ```powershell
@@ -100,8 +105,10 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 | [docs/architecture.md](docs/architecture.md) | 계층·데이터 흐름·모드 |
 | [docs/strategy_spec.md](docs/strategy_spec.md) | V1 규칙·파라미터·검증 결과·정직한 결론 |
 | [docs/strategy_v2.md](docs/strategy_v2.md) | V2 펀딩 가드 연구 — 2×2 실험, 손익 귀속 분해, **동적 레짐 기각** 판정 |
-| [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 정적 비율 프론티어 — **최적 비율 부재** 판정, 보험 구조 해부, 강건 구간 10~20% |
+| [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 정적 비율 프론티어 — **최적 비율 부재** 판정, 보험 구조 해부. §10: 단일 사건 오염 정정과 **시작일 분산 기준**으로의 교체 |
 | [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md) | V4 대조군 검정 — **무작위 대비 유의성 0건**, 승률 주장 철회, 거래비용 아티팩트 해부 |
+| [docs/strategy_v5_sample_extension.md](docs/strategy_v5_sample_extension.md) | V5 표본 확장 — 사전 등록 관문(G1~G3) **전부 FAIL**, USDT-M 은 COIN-M 펀딩의 대체물이 아님 |
+| [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md) | 인시던트 — 죽은 소켓이 6일간 SAFE_HOLD 를 래치한 경위, 원인 3건, 수정, 남은 검증 |
 | [docs/inverse_math.md](docs/inverse_math.md) | Inverse 계약 수학(손익·평균가·수수료·펀딩·청산) |
 | [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
 | [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |
@@ -119,6 +126,9 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * 현재 VIP0 수수료율·COIN-M BNB 할인 여부 미확인 → 런타임 `commissionRate` 조회, 백테스트는 보수적 0.05%/0.02%.
 * 계약 사양 변경 이력 미반영(현재 사양 고정), 일봉 해상도 근사(펀딩 시각 마크가격), 슬리피지·부분체결은 모델값.
 * WebSocket 스트림은 **2026-09-02 실서버 연결 확인**. REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
+* **절전 복구 수정(2026-09-11)은 현장 검증 미완.** caffeinate 가 절전 자체를 막고 있어 강제 재연결이 아직 한 번도 발동하지 않았다. `bash scripts/test_suspend_recovery.sh` 로 결정적 시험 가능(프로세스를 90초 정지시켜 절전을 흉내냄).
+* **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
+* Docker 이미지 빌드 미검증(개발 환경에 데몬 없음). `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
 * 머신러닝 없음(V1 범위 제외).
 
 ## 8. 보안
