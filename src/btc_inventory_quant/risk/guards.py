@@ -191,7 +191,17 @@ class Guards:
         return GuardResult(True, "SPEC_OK")
 
     def check_stream_silence(self, silence_seconds: float | None, connected: bool) -> GuardResult:
-        """WebSocket streams enabled but silent/disconnected for too long → SAFE_HOLD."""
+        """Streams enabled but silent for too long → block trading. Recoverable, not critical.
+
+        Stale market data must stop us from sending orders, and it does: a blocking guard skips
+        the rebalance. What it must *not* do is latch the kill switch. A closing laptop lid is
+        enough to freeze a WebSocket while the socket still reports ``connected``, and latching
+        on that leaves a live position frozen until a human notices — which, in week one of
+        shadow, took six days. The stream layer reconnects itself and the next cycle re-checks;
+        :class:`Trader` escalates to SAFE_HOLD only after
+        ``risk.stale_data_cycles_to_safe_hold`` consecutive cycles still find it stale, which is
+        no longer a transient.
+        """
         if silence_seconds is None:
             return GuardResult(True, "WS_NOT_ENABLED")
         if silence_seconds > self.limits.ws_max_silence_seconds:
@@ -199,7 +209,7 @@ class Guards:
                 False,
                 "WS_SILENT",
                 f"no stream message for {silence_seconds:.0f}s (connected={connected})",
-                critical=True,
+                critical=False,
             )
         return GuardResult(True, "WS_OK")
 

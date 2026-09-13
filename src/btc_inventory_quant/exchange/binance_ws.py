@@ -176,6 +176,9 @@ class StreamStatus:
     reconnects: int
     messages: int
     last_error: str = ""
+    continuous: bool = False
+    forced_reconnects: int = 0
+    last_reconnect_reason: str = ""
 
     def silence_seconds(self, now: datetime) -> float | None:
         if self.last_message_at is None:
@@ -191,7 +194,15 @@ class ListenKeyProvider(Protocol):
 
 
 class _BaseStream:
-    """Background-thread WebSocket consumer with reconnect/backoff."""
+    """Background-thread WebSocket consumer with reconnect/backoff.
+
+    A dropped TCP connection does not necessarily raise. When a laptop suspends, the socket
+    is gone but ``recv()`` only keeps timing out, so ``connected`` stays True forever and the
+    stream is silently dead (observed 2026-09-04: 24.8 h of silence with ``connected=True``).
+    Two client-side checks tear such a connection down — see :meth:`_reconnect_reason`. Both
+    use only our own clock and our own message counter; neither assumes anything about what
+    the exchange sends, which keeps them valid without a documentation claim to lean on.
+    """
 
     def __init__(
         self,
@@ -200,6 +211,9 @@ class _BaseStream:
         backoff_max: float = 30.0,
         recv_timeout: float = 5.0,
         max_connection_age: float = 23 * 3600,
+        continuous: bool = False,
+        stale_reconnect_seconds: float = 60.0,
+        suspend_gap_seconds: float = 60.0,
     ) -> None:
         self.name = name
         self._thread: threading.Thread | None = None
@@ -207,12 +221,27 @@ class _BaseStream:
         self._lock = threading.Lock()
         self._connected = False
         self._last_message_at: datetime | None = None
+        self._last_message_wall: float | None = None
         self._reconnects = 0
+        self._forced_reconnects = 0
+        self._last_reconnect_reason = ""
         self._messages = 0
         self._last_error = ""
         self._backoff_max = backoff_max
         self._recv_timeout = recv_timeout
         self._max_connection_age = max_connection_age
+        self._continuous = continuous
+        self._stale_reconnect_seconds = stale_reconnect_seconds
+        self._suspend_gap_seconds = suspend_gap_seconds
+
+    @property
+    def continuous(self) -> bool:
+        """True when this stream is expected to emit messages on its own schedule.
+
+        Only such a stream can be judged by silence. A user-data stream is event driven and
+        is legitimately quiet for hours, so silence says nothing about its health.
+        """
+        return self._continuous
 
     # --- lifecycle --------------------------------------------------------
     def start(self) -> None:
@@ -229,6 +258,10 @@ class _BaseStream:
         if self._thread:
             self._thread.join(timeout)
 
+    def alive(self) -> bool:
+        """The consumer thread is running. False means only a restart can recover it."""
+        return bool(self._thread and self._thread.is_alive())
+
     def status(self) -> StreamStatus:
         with self._lock:
             return StreamStatus(
@@ -238,6 +271,9 @@ class _BaseStream:
                 self._reconnects,
                 self._messages,
                 self._last_error,
+                self._continuous,
+                self._forced_reconnects,
+                self._last_reconnect_reason,
             )
 
     # --- to override ------------------------------------------------------
@@ -248,6 +284,10 @@ class _BaseStream:
         raise NotImplementedError
 
     async def _on_connected(self) -> None:
+        return None
+
+    def _on_disconnected(self) -> None:
+        """Called after every connection ends, forced or not. Drop state a gap invalidates."""
         return None
 
     async def _periodic(self) -> None:
@@ -277,6 +317,8 @@ class _BaseStream:
             connected_at = time.monotonic()
             try:
                 async with websockets.connect(url, ping_interval=None, max_queue=1024) as ws:
+                    connected_wall = time.time()
+                    last_tick = connected_wall
                     with self._lock:
                         self._connected = True
                         self._last_error = ""
@@ -285,9 +327,14 @@ class _BaseStream:
                     while not self._stop.is_set():
                         if time.monotonic() - connected_at > self._max_connection_age:
                             log.info(
-                                "proactive reconnect before the 24h limit",
+                                "proactive reconnect before the connection age limit",
                                 fields={"stream": self.name},
                             )
+                            break
+                        reason = self._reconnect_reason(connected_wall, last_tick)
+                        last_tick = time.time()
+                        if reason:
+                            self._force_reconnect(reason)
                             break
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=self._recv_timeout)
@@ -298,6 +345,7 @@ class _BaseStream:
                         await self._periodic()
             except Exception as exc:
                 self._note_error(exc)
+            self._on_disconnected()
             with self._lock:
                 self._connected = False
                 self._reconnects += 1
@@ -305,6 +353,37 @@ class _BaseStream:
                 break
             await asyncio.sleep(delay)
             delay = min(self._backoff_max, delay * 2)
+
+    def _reconnect_reason(self, connected_wall: float, last_tick: float) -> str:
+        """Why this connection must be torn down now. Empty string = keep it.
+
+        ``suspend`` — one pass of a loop that cannot take longer than ``recv_timeout`` took far
+        longer in wall-clock time, so the process was frozen (a laptop lid closing). The TCP
+        connection rarely survives that, but ``recv()`` never says so: it keeps timing out while
+        ``connected`` stays True. This is the condition that cost us week one.
+
+        ``silence`` — a stream that emits on its own schedule has stopped. Applies only to
+        streams that declare :attr:`continuous`; an idle user-data stream is quiet by design,
+        and judging it by silence is how a healthy stream gets torn down for no reason.
+        """
+        now = time.time()
+        gap = now - last_tick
+        if gap > self._suspend_gap_seconds:
+            return f"host suspended or stalled for {gap:.0f}s"
+        if self._continuous:
+            with self._lock:
+                last_msg = self._last_message_wall
+            # a reconnect restarts the clock: silence is measured from whichever is later
+            silence = now - max(last_msg or 0.0, connected_wall)
+            if silence > self._stale_reconnect_seconds:
+                return f"no message for {silence:.0f}s while connected"
+        return ""
+
+    def _force_reconnect(self, reason: str) -> None:
+        with self._lock:
+            self._forced_reconnects += 1
+            self._last_reconnect_reason = reason
+        log.warning("forcing stream reconnect", fields={"stream": self.name, "reason": reason})
 
     def _note_error(self, exc: BaseException) -> None:
         with self._lock:
@@ -323,6 +402,7 @@ class _BaseStream:
         with self._lock:
             self._messages += 1
             self._last_message_at = datetime.now(tz=UTC)
+            self._last_message_wall = time.time()
         try:
             self._handle(payload)
         except Exception as exc:  # never let a bad message kill the stream
@@ -341,6 +421,10 @@ class UserDataStream(_BaseStream):
         url_override: str | None = None,
         **kw: Any,
     ) -> None:
+        # Event driven, so silence proves nothing and a dead socket can hide indefinitely.
+        # A cheap proactive reconnect every 30 min bounds how long it can hide; the listenKey
+        # is reused, so this costs one handshake and stays far inside the connection limits.
+        kw.setdefault("max_connection_age", 1800.0)
         super().__init__("user_data", **kw)
         self.provider = provider
         self.on_event = on_event
@@ -360,6 +444,20 @@ class UserDataStream(_BaseStream):
             self._last_keepalive = time.monotonic()
         base = self._url_override or self.provider.ws_url
         return f"{base}/ws/{self._listen_key}"
+
+    def _on_disconnected(self) -> None:
+        """Forget the position snapshot: a gap may have swallowed an ACCOUNT_UPDATE.
+
+        Keeping it would let :meth:`Guards.check_ws_position` compare a pre-gap snapshot against
+        a fresh REST reading and latch SAFE_HOLD over a difference that only means "we were not
+        listening". REST reconciliation still guards the real invariant; what we drop here is a
+        redundant cross-check we can no longer honestly claim to have.
+        """
+        with self._lock:
+            had = len(self._positions)
+            self._positions.clear()
+        if had:
+            log.info("user stream reconnected; position snapshot dropped until the next update")
 
     async def _periodic(self) -> None:
         if time.monotonic() - self._last_keepalive >= self.keepalive_seconds:
@@ -418,6 +516,9 @@ class MarkPriceStream(_BaseStream):
         on_update: Callable[[MarkPriceEvent], None] | None = None,
         **kw: Any,
     ) -> None:
+        # markPriceUpdate arrives every ~3 s, so a minute of silence is already 20x abnormal
+        # and means the socket is gone. This is the stream the silence guard judges.
+        kw.setdefault("continuous", True)
         super().__init__("mark_price", **kw)
         self.ws_url = ws_url
         self.symbol = symbol
@@ -464,6 +565,16 @@ class StreamBundle:
                 with contextlib.suppress(Exception):
                     s.stop()
 
+    def alive(self) -> bool:
+        streams = [s for s in (self.user, self.mark) if s is not None]
+        return bool(streams) and all(s.alive() for s in streams)
+
+    def restart(self) -> None:
+        """Tear the streams down and start them again; used to recover from stale data."""
+        self.stop()
+        self.started_at = datetime.now(tz=UTC)
+        self.start()
+
     def statuses(self) -> list[StreamStatus]:
         return [s.status() for s in (self.user, self.mark) if s is not None]
 
@@ -472,8 +583,17 @@ class StreamBundle:
         return bool(st) and all(s.connected for s in st)
 
     def max_silence_seconds(self, now: datetime) -> float | None:
+        """Silence of the streams that are supposed to talk. ``None`` when none of them are.
+
+        Event-driven streams are excluded deliberately. Taking the max over an idle user-data
+        stream would report hours of perfectly healthy silence and trip the silence guard on a
+        live account that simply had no fills — the guard would fire for the one reason it is
+        not meant to catch.
+        """
         vals = []
         for s in self.statuses():
+            if not s.continuous:
+                continue
             sil = s.silence_seconds(now)
             vals.append((now - self.started_at).total_seconds() if sil is None else sil)
         return max(vals) if vals else None

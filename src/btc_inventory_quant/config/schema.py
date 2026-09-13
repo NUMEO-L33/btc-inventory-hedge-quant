@@ -120,7 +120,11 @@ class RiskLimits(StrictModel):
         Decimal("0.25"), ge=0
     )  # SAFE_HOLD if maint-margin/equity > buffer
     max_unexpected_balance_diff_btc: Decimal = Field(Decimal("0.00001"), ge=0)
-    ws_max_silence_seconds: int = Field(900, ge=30)  # SAFE_HOLD when streams are enabled but silent
+    ws_max_silence_seconds: int = Field(900, ge=30)  # block trading when streams are silent
+    # Silence blocks trading immediately but does not latch SAFE_HOLD: a suspended laptop is
+    # enough to cause it and the streams reconnect on their own. Latch only once the condition
+    # survives this many consecutive decision cycles, which no longer looks like a transient.
+    stale_data_cycles_to_safe_hold: int = Field(3, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> RiskLimits:

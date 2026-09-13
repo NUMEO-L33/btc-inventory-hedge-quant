@@ -266,6 +266,81 @@ def test_stream_survives_malformed_messages() -> None:
         server.stop()
 
 
+# --------------------------------------------------------------------------- dead-socket recovery
+# A dropped connection does not have to raise. When the host suspends, the socket is gone but
+# recv() only keeps timing out, so `connected` stays True and the stream is silently dead. That
+# is what the _Server below reproduces for free: it sends its script and then holds the socket
+# open saying nothing — indistinguishable, from the client's side, from a laptop that slept.
+
+
+def test_a_silent_but_connected_stream_forces_a_reconnect() -> None:
+    server = _Server([MARK_PRICE_UPDATE])
+    server.start()
+    stream = MarkPriceStream(
+        server.url,
+        "BTCUSD_PERP",
+        recv_timeout=0.2,
+        backoff_max=0.2,
+        stale_reconnect_seconds=1.0,
+    )
+    stream.start()
+    try:
+        assert _wait(lambda: server.connections >= 2, timeout=10), (
+            "the client sat on a dead socket instead of reconnecting"
+        )
+        st = stream.status()
+        assert st.forced_reconnects >= 1
+        assert "no message" in st.last_reconnect_reason
+    finally:
+        stream.stop()
+        server.stop()
+
+
+def test_an_idle_user_stream_is_not_judged_by_silence() -> None:
+    """An event-driven stream is quiet by design; counting that as silence fires the guard
+    for the one reason it is not meant to catch — a live account that simply had no fills."""
+    from datetime import UTC, datetime, timedelta
+
+    server = _Server([])  # connects, then never says anything
+    server.start()
+    provider = _FakeProvider(server.url)
+    user = UserDataStream(provider, recv_timeout=0.2)
+    bundle = StreamBundle(user=user, mark=None)
+    bundle.started_at = datetime.now(tz=UTC) - timedelta(hours=6)
+    bundle.start()
+    try:
+        assert _wait(lambda: user.status().connected)
+        assert bundle.max_silence_seconds(datetime.now(tz=UTC)) is None
+    finally:
+        bundle.stop()
+        server.stop()
+
+
+def test_a_suspend_gap_forces_a_reconnect_even_while_the_socket_says_connected() -> None:
+    stream = MarkPriceStream("ws://unused", "BTCUSD_PERP", suspend_gap_seconds=60.0)
+    now = time.time()
+    # a loop pass that cannot take longer than recv_timeout took 40 minutes: the host slept
+    assert "suspended" in stream._reconnect_reason(now - 3000.0, now - 2400.0)
+    # a normal pass is left alone
+    assert stream._reconnect_reason(now - 1.0, now - 0.2) == ""
+
+
+def test_a_reconnected_user_stream_forgets_its_position_snapshot() -> None:
+    """A gap may have swallowed an ACCOUNT_UPDATE, so the snapshot is no longer evidence.
+    Keeping it would let the WS-vs-REST guard latch SAFE_HOLD over "we were not listening"."""
+    server = _Server([ACCOUNT_UPDATE], close_after=1)
+    server.start()
+    provider = _FakeProvider(server.url)
+    stream = UserDataStream(provider, recv_timeout=0.2, backoff_max=0.2)
+    stream.start()
+    try:
+        assert _wait(lambda: stream.status().reconnects >= 1, timeout=10)
+        assert _wait(lambda: stream.last_position("BTCUSD_PERP") is None, timeout=5)
+    finally:
+        stream.stop()
+        server.stop()
+
+
 @pytest.mark.parametrize("payload", [ORDER_TRADE_UPDATE, ACCOUNT_UPDATE, MARK_PRICE_UPDATE])
 def test_payloads_round_trip_json(payload: dict[str, Any]) -> None:
     assert json.loads(json.dumps(payload)) == payload

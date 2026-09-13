@@ -36,27 +36,33 @@ PARAMS = RegimeHedgeParams(ema_slow=50, ema_mid=20, ema_fast=10, atr_period=10)
 WARMUP = 60
 
 
-def _config() -> AppConfig:
-    return AppConfig.model_validate(
-        {
-            "mode": "shadow",
-            "strategy": {"name": "regime_hedge_v1", "regime_hedge": PARAMS.model_dump()},
-            "backtest": {
-                "warmup_bars": WARMUP,
-                "cost": {"taker_fee_rate": "0.0005", "slippage_bps": "5"},
-            },
-            "exchange": {"name": "paper", "paper_initial_btc": "1"},
-            "execution": {"policy": "market"},
-        }
-    )
+def _config(risk: dict[str, Any] | None = None) -> AppConfig:
+    payload: dict[str, Any] = {
+        "mode": "shadow",
+        "strategy": {"name": "regime_hedge_v1", "regime_hedge": PARAMS.model_dump()},
+        "backtest": {
+            "warmup_bars": WARMUP,
+            "cost": {"taker_fee_rate": "0.0005", "slippage_bps": "5"},
+        },
+        "exchange": {"name": "paper", "paper_initial_btc": "1"},
+        "execution": {"policy": "market"},
+    }
+    if risk:
+        payload["risk"] = risk
+    return AppConfig.model_validate(payload)
 
 
 class Harness:
     def __init__(
-        self, tmp_path: Path, n_days: int = 160, seed: int = 5, db_name: str = "sim.sqlite3"
+        self,
+        tmp_path: Path,
+        n_days: int = 160,
+        seed: int = 5,
+        db_name: str = "sim.sqlite3",
+        risk: dict[str, Any] | None = None,
     ) -> None:
         self.ds = make_dataset(synthetic_prices(n_days, seed=seed, vol=0.04))
-        self.config = _config()
+        self.config = _config(risk)
         self.db = Database(f"sqlite:///{tmp_path}/{db_name}")
         self.db.create_all()
         self.tmp_path = tmp_path
@@ -76,7 +82,7 @@ class Harness:
             self.market, self.spec, initial_btc=D("1"), taker_fee=D("0.0005"), slippage_bps=D("5")
         )
 
-    def build_trader(self, orders_allowed: bool = True) -> Trader:
+    def build_trader(self, orders_allowed: bool = True, streams: Any = None) -> Trader:
         alerter = Alerter([LogChannel()], async_send=False)
         ks = KillSwitch(self.db, alerter)
         om = OrderManager(
@@ -108,6 +114,7 @@ class Harness:
             orders_allowed=orders_allowed,
             clock=lambda: self.market.now,
             sleep=lambda s: None,
+            streams=streams,
         )
         self.trader = trader
         self.alerter = alerter

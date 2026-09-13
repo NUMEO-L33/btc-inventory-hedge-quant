@@ -70,6 +70,7 @@ STATE_SAFE_HOLD_CANCELLED = "safe_hold_orders_cancelled"
 STATE_LAST_FUNDING_SETTLE_MS = "last_paper_funding_settle_ms"
 STATE_PREV_EQUITY = "prev_cycle_equity"
 STATE_PAPER_ACCOUNT = "paper_account"
+STATE_STALE_CYCLES = "stale_data_cycles"
 
 
 @dataclass(slots=True)
@@ -130,6 +131,7 @@ class Trader:
         self.rebalancer = Rebalancer(spec, config.risk, bypass_cap=strategy.bypass_max_hedge_cap)
         self.portfolio: Portfolio | None = None
         self.consecutive_data_errors = 0
+        self._last_stream_restart: datetime | None = None
         self.started = False
 
     # ------------------------------------------------------------------ start
@@ -283,11 +285,21 @@ class Trader:
         )
         guard_results.append(self.guards.check_rejects(self.order_manager.consecutive_rejects))
         if self.streams is not None:
-            guard_results.append(
-                self.guards.check_stream_silence(
-                    self.streams.max_silence_seconds(now), self.streams.connected()
-                )
+            silence_guard = self.guards.check_stream_silence(
+                self.streams.max_silence_seconds(now), self.streams.connected()
             )
+            guard_results.append(silence_guard)
+            if self._track_stale_data(silence_guard, now):
+                return CycleResult(
+                    now,
+                    "safe_hold",
+                    candle_time,
+                    regime,
+                    raw_target,
+                    guard_failures=[silence_guard],
+                    reconciliation_ok=True,
+                    message="stale market data persisted across cycles",
+                )
             ws_pos = (
                 self.streams.user.last_position(self.symbol)
                 if self.streams.user is not None
@@ -569,6 +581,69 @@ class Trader:
             out["direction"] = "conservative" if rates.taker < cost.taker_fee_rate else "optimistic"
         return out
 
+    def _track_stale_data(self, guard: GuardResult, now: datetime) -> bool:
+        """Count consecutive stale-data cycles. True = time to latch SAFE_HOLD.
+
+        A single stale cycle only blocks trading, because the usual cause is a suspended host
+        and the streams recover on their own. The count lives in the database so that a restart
+        cannot quietly reset it and hide a condition that has been failing for days.
+        """
+        state = self.db.get_state(STATE_STALE_CYCLES) or {}
+        if guard.ok:
+            if int(state.get("count", 0)):
+                self.db.set_state(STATE_STALE_CYCLES, {"count": 0})
+                log.info("stale data cleared; streams are live again")
+            return False
+        count = int(state.get("count", 0)) + 1
+        self.db.set_state(STATE_STALE_CYCLES, {"count": count, "last": now.isoformat()})
+        limit = self.config.risk.stale_data_cycles_to_safe_hold
+        if count >= limit:
+            self._engage(
+                "stale market data persisted",
+                {"cycles": count, "guard": f"{guard.code}: {guard.message}"},
+            )
+            return True
+        log.warning(
+            "stale market data; trading blocked this cycle",
+            fields={"cycle": count, "limit": limit, "guard": guard.message},
+        )
+        self.alerter.notify(
+            "stale_data_blocked",
+            f"trading blocked: {guard.message} ({count}/{limit} cycles before SAFE_HOLD)",
+            level="WARNING",
+        )
+        return False
+
+    def _supervise_streams(self) -> None:
+        """Restart the stream bundle when its own reconnect loop cannot recover.
+
+        The streams heal themselves inside their background thread within seconds. This covers
+        what that thread cannot: a thread that has died outright, or one reconnecting in a loop
+        without ever producing data. The cooldown stops a genuinely offline network from
+        restarting the streams on every poll.
+        """
+        if self.streams is None:
+            return
+        now = self.clock()
+        silence = self.streams.max_silence_seconds(now)
+        limit = self.config.risk.ws_max_silence_seconds
+        alive = self.streams.alive()
+        if alive and not (silence is not None and silence > limit):
+            return
+        if (
+            self._last_stream_restart is not None
+            and (now - self._last_stream_restart).total_seconds() < limit
+        ):
+            return
+        self._last_stream_restart = now
+        detail = "thread dead" if not alive else f"silent for {silence:.0f}s"
+        log.warning("restarting streams", fields={"reason": detail})
+        self.alerter.notify("stream_restart", f"streams restarted ({detail})", level="WARNING")
+        try:
+            self.streams.restart()
+        except Exception as exc:  # a failed restart must not kill the heartbeat
+            log.error("stream restart failed", fields={"error": repr(exc)})
+
     def _engage(self, reason: str, details: dict[str, Any] | None = None) -> None:
         self.kill_switch.engage(reason, details)
         self._cancel_once_in_safe_hold()
@@ -788,6 +863,7 @@ class Trader:
             self.stop()
 
     def _heartbeat(self) -> None:
+        self._supervise_streams()
         try:
             info = self._mark_price()
             self.metrics.update(
