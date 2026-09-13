@@ -14,7 +14,7 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 >
 > **정정(2026-09-11)**: V3 의 "모든 강건성 검사를 통과하는 구간 10~20%" 논거는 **PASS 조건이 2022년 폭락 하나의 함수**였음이 드러나 **철회**했습니다. 20% 는 유지하되, 근거는 **14개 시작일 창 전체에서 최종 BTC 가 시작 시점에 가장 덜 좌우되는 구간**(최고/최악 1.69배, 85% 는 9.91배)으로 교체 — V3 §10.
 >
-> **운영 인시던트(2026-09-05)**: 맥북 절전으로 WebSocket 이 `connected=True` 인 채 24.8시간 무음 → 킬스위치가 래치되어 **6일간 SAFE_HOLD, 알림 미도달**. 죽은 소켓 감지·회복 가능 조건의 래치 해제·외부 알림 채널로 수정. 회귀 테스트 10건은 수정 전 코드에서 실패함을 확인했으나 **현장 검증은 미완** — [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md)
+> **운영 인시던트(2026-09-05)**: 맥북 절전으로 WebSocket 이 `connected=True` 인 채 24.8시간 무음 → 킬스위치가 래치되어 **6일간 SAFE_HOLD, 알림 미도달**. 죽은 소켓 감지·회복 가능 조건의 래치 해제·외부 알림 채널로 수정. 회귀 테스트 10건은 수정 전 코드에서 실패함을 확인했고, **2026-09-13 프로세스를 90초 정지시키는 현장 시험에서 20초 안에 스스로 복구**했다 — [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md)
 
 ## 1. 핵심 결과 한눈에 (2021-03-10 → 2026-09-01, 실데이터)
 
@@ -108,7 +108,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 | [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 정적 비율 프론티어 — **최적 비율 부재** 판정, 보험 구조 해부. §10: 단일 사건 오염 정정과 **시작일 분산 기준**으로의 교체 |
 | [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md) | V4 대조군 검정 — **무작위 대비 유의성 0건**, 승률 주장 철회, 거래비용 아티팩트 해부 |
 | [docs/strategy_v5_sample_extension.md](docs/strategy_v5_sample_extension.md) | V5 표본 확장 — 사전 등록 관문(G1~G3) **전부 FAIL**, USDT-M 은 COIN-M 펀딩의 대체물이 아님 |
-| [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md) | 인시던트 — 죽은 소켓이 6일간 SAFE_HOLD 를 래치한 경위, 원인 3건, 수정, 남은 검증 |
+| [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md) | 인시던트 — 죽은 소켓이 6일간 SAFE_HOLD 를 래치한 경위, 원인 3건, 수정, 현장 검증 |
 | [docs/inverse_math.md](docs/inverse_math.md) | Inverse 계약 수학(손익·평균가·수수료·펀딩·청산) |
 | [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
 | [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |
@@ -126,7 +126,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * 현재 VIP0 수수료율·COIN-M BNB 할인 여부 미확인 → 런타임 `commissionRate` 조회, 백테스트는 보수적 0.05%/0.02%.
 * 계약 사양 변경 이력 미반영(현재 사양 고정), 일봉 해상도 근사(펀딩 시각 마크가격), 슬리피지·부분체결은 모델값.
 * WebSocket 스트림은 **2026-09-02 실서버 연결 확인**. REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
-* **절전 복구 수정(2026-09-11)은 현장 검증 미완.** caffeinate 가 절전 자체를 막고 있어 강제 재연결이 아직 한 번도 발동하지 않았다. `bash scripts/test_suspend_recovery.sh` 로 결정적 시험 가능(프로세스를 90초 정지시켜 절전을 흉내냄).
+* ~~절전 복구 수정(2026-09-11) 현장 검증 미완~~ → **2026-09-13 현장 검증 완료.** `scripts/test_suspend_recovery.sh` 로 shadow 프로세스를 90초 정지시킨 결과 정지 감지가 발동해 강제 재연결했고 SAFE_HOLD 는 걸리지 않았다(`docs/incident_2026-09-05_stream_silence.md` §6).
 * **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
 * Docker 이미지 빌드 미검증(개발 환경에 데몬 없음). `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
 * 머신러닝 없음(V1 범위 제외).
