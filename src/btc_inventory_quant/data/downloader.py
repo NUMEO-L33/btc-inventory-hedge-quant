@@ -288,6 +288,97 @@ class BinanceCoinMPublicDownloader:
         return self.manifest
 
 
+USDT_M_BASE_URL = "https://fapi.binance.com"
+USDT_M_START_MS = 1_567_900_800_000  # 2019-09-08T00:00:00Z (BTCUSDT perpetual onboarding)
+
+
+class BinanceUsdtMPublicDownloader(BinanceCoinMPublicDownloader):
+    """USDT-margined ``BTCUSDT`` perpetual — price and funding history back to 2019-09.
+
+    This exists for ONE purpose: the V5 sample-extension study
+    (:doc:`../../docs/strategy_v5_sample_extension`). COIN-M ``BTCUSD_PERP`` only starts at
+    2020-08-11, so the dataset contains one major drawdown episode; BTCUSDT reaches back far
+    enough to add the March 2020 crash **with real Binance funding rates** rather than assumed
+    ones.
+
+    It is NOT a drop-in substitute for the COIN-M data. BTCUSDT is a *linear* contract: its PnL
+    maths differ and its funding rate is its own series, not ours. Only the price and funding-rate
+    series are usable, and only after the overlap-period proxy check in the V5 study §3 passes.
+    Nothing in the live/backtest path reads this directory.
+    """
+
+    def __init__(self, raw_dir: Path, symbol: str = "BTCUSDT", **kw: Any) -> None:
+        kw.setdefault("base_url", USDT_M_BASE_URL)
+        super().__init__(raw_dir, symbol=symbol, pair=symbol, **kw)
+
+    def download_klines(
+        self, start_ms: int = USDT_M_START_MS, end_ms: int | None = None
+    ) -> DatasetRecord:
+        return self._paginate(
+            "klines_1d", "/fapi/v1/klines", {"symbol": self.symbol, "interval": "1d"},
+            0, 1500, start_ms, end_ms,
+        )  # fmt: skip
+
+    def download_mark_klines(
+        self, start_ms: int = USDT_M_START_MS, end_ms: int | None = None
+    ) -> DatasetRecord:
+        return self._paginate(
+            "mark_price_klines_1d", "/fapi/v1/markPriceKlines",
+            {"symbol": self.symbol, "interval": "1d"}, 0, 1500, start_ms, end_ms,
+        )  # fmt: skip
+
+    def download_index_klines(
+        self, start_ms: int = USDT_M_START_MS, end_ms: int | None = None
+    ) -> DatasetRecord:
+        """Not fetched: a linear contract has no pair-level index series we use.
+
+        Recorded in the manifest as an empty dataset rather than omitted, so that a reader can
+        tell "deliberately not collected" from "collection failed".
+        """
+        record = DatasetRecord(name="index_price_klines_1d")
+        self.manifest["datasets"][record.name] = {
+            **record.to_dict(),
+            "skipped": "not applicable to a linear contract",
+        }
+        return record
+
+    def download_funding(
+        self, start_ms: int = USDT_M_START_MS, end_ms: int | None = None
+    ) -> DatasetRecord:
+        return self._paginate(
+            "funding_rate", "/fapi/v1/fundingRate", {"symbol": self.symbol},
+            "fundingTime", 1000, start_ms, end_ms,
+        )  # fmt: skip
+
+    def download_mark_klines_8h(
+        self, start_ms: int = USDT_M_START_MS, end_ms: int | None = None
+    ) -> DatasetRecord:
+        return self._paginate(
+            "mark_price_klines_8h", "/fapi/v1/markPriceKlines",
+            {"symbol": self.symbol, "interval": "8h"}, 0, 1500, start_ms, end_ms,
+        )  # fmt: skip
+
+    def download_snapshots(self) -> None:
+        self._snapshot("exchange_info", "/fapi/v1/exchangeInfo")
+        self._snapshot("premium_index", "/fapi/v1/premiumIndex", {"symbol": self.symbol})
+        self._snapshot("server_time", "/fapi/v1/time")
+
+    def download_all(
+        self, start_ms: int = USDT_M_START_MS, include_8h_mark: bool = False
+    ) -> dict[str, Any]:
+        manifest = super().download_all(start_ms=start_ms, include_8h_mark=include_8h_mark)
+        manifest["source"]["exchange"] = "Binance USDT-M public REST"
+        manifest["source"]["caveat"] = (
+            "LINEAR contract. Price and funding-rate series only; inverse PnL maths do not carry "
+            "over. Usable for the V5 study only if docs/strategy_v5_sample_extension.md "
+            "section 3 proxy gate passes."
+        )
+        (self.raw_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return manifest
+
+
 def _resolve_page_path(raw_dir: Path, file: str) -> Path | None:
     """Manifests may store paths relative to raw_dir or to the repository root."""
     candidates = [raw_dir / file, Path(file)]

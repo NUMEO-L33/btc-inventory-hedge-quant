@@ -1,0 +1,17 @@
+{
+  "verdict": "FAIL",
+  "overlap_settlements": 6641,
+  "overlap_first_utc": "2020-08-10 16:00",
+  "overlap_last_utc": "2026-09-02 08:00",
+  "G1_median_abs_diff": "0.0000331",
+  "G1_threshold": "0.00002",
+  "G1": "FAIL",
+  "G2_relative_error": "0.1804610114312827336986016623",
+  "G2_threshold": "0.15",
+  "G2": "FAIL",
+  "G3_sign_agreement": "0.8287908447522963409125131757",
+  "G3_threshold": "0.95",
+  "G3": "FAIL",
+  "cumulative_funding_btc_coin_m": "0.1156132720",
+  "cumulative_funding_btc_usdt_m": "0.1364769600"
+}

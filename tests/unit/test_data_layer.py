@@ -8,7 +8,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from btc_inventory_quant.data.downloader import BinanceCoinMPublicDownloader, verify_manifest
+from btc_inventory_quant.data.downloader import (
+    USDT_M_START_MS,
+    BinanceCoinMPublicDownloader,
+    BinanceUsdtMPublicDownloader,
+    verify_manifest,
+)
 from btc_inventory_quant.data.funding_data import (
     FundingDataError,
     load_funding_events,
@@ -200,6 +205,50 @@ def test_downloader_paginates_and_writes_verifiable_manifest(tmp_path: Path) -> 
     payload[0][4] = "9.9"
     page.write_text(json.dumps(payload))
     assert any("sha256" in p for p in verify_manifest(tmp_path))
+
+
+def test_usdt_m_downloader_hits_fapi_and_labels_the_linear_caveat(tmp_path: Path) -> None:
+    """The V5 extension pulls BTCUSDT. It must not silently look like COIN-M data."""
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        paths.append(path)
+        assert request.url.host == "fapi.binance.com", "USDT-M must not hit the COIN-M host"
+        if path.endswith("exchangeInfo"):
+            return httpx.Response(200, json={"serverTime": 1, "symbols": []})
+        if path.endswith("premiumIndex"):
+            return httpx.Response(200, json=[{"symbol": "BTCUSDT", "markPrice": "1"}])
+        if path.endswith("/time"):
+            return httpx.Response(200, json={"serverTime": 1})
+        start = int(dict(request.url.params)["startTime"])
+        if path.endswith("fundingRate"):
+            if start > T0:
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[{"symbol": "BTCUSDT", "fundingTime": T0, "fundingRate": "0.0001"}],
+            )
+        if start > T0:
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[_kline(T0, 1, 2, 0.5, 1.5)])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    dl = BinanceUsdtMPublicDownloader(tmp_path, client=client, sleep_seconds=0)
+    manifest = dl.download_all(start_ms=T0 - DAY)
+
+    assert all(p.startswith("/fapi/") for p in paths), paths
+    assert manifest["source"]["exchange"] == "Binance USDT-M public REST"
+    assert "LINEAR" in manifest["source"]["caveat"]
+    assert manifest["datasets"]["funding_rate"]["total_rows"] == 1
+    # a linear contract has no pair-level index series to fetch
+    assert manifest["datasets"]["index_price_klines_1d"]["total_rows"] == 0
+    assert verify_manifest(tmp_path) == []
+
+
+def test_usdt_m_start_precedes_coin_m_listing() -> None:
+    """The whole point of the extension: reach back past the COIN-M listing date."""
+    assert USDT_M_START_MS < 1_597_104_000_000  # 2020-08-11, BTCUSD_PERP onboarding
 
 
 def test_real_snapshot_manifest_verifies() -> None:

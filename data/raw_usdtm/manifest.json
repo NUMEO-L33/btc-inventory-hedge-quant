@@ -1,0 +1,194 @@
+{
+  "datasets": {
+    "klines_1d": {
+      "pages": [
+        {
+          "file": "klines_1d/page_001.json",
+          "url": "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&startTime=1567900800000&limit=1500",
+          "rows": 1500,
+          "sha256": "51a2d4d15b1726bf59b62e97b49a1a68e2a91d1a11e6097c7e1dd7b91a8de0ae",
+          "verified": true
+        },
+        {
+          "file": "klines_1d/page_002.json",
+          "url": "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&startTime=1697414400001&limit=1500",
+          "rows": 1061,
+          "sha256": "052c4dd545384765d2b9fe020139a07919c389d81e76fe017c33abc5d38f5f38",
+          "verified": true
+        }
+      ],
+      "total_rows": 2561,
+      "first_time_ms": 1567900800000,
+      "last_time_ms": 1789084800000,
+      "first_date": "2019-09-08T00:00:00+00:00",
+      "last_date": "2026-09-11T00:00:00+00:00"
+    },
+    "mark_price_klines_1d": {
+      "pages": [
+        {
+          "file": "mark_price_klines_1d/page_001.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=1d&startTime=1567900800000&limit=1500",
+          "rows": 1500,
+          "sha256": "3a07b46c25d002d340509505b506d7e5c4a87578b1a99dc9ce9187847be4eda1",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_1d/page_002.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=1d&startTime=1706572800001&limit=1500",
+          "rows": 955,
+          "sha256": "ea7cb1189a1b663470d9ce58b3cf220003b92c2523c15830dc35395b54625515",
+          "verified": true
+        }
+      ],
+      "total_rows": 2455,
+      "first_time_ms": 1577059200000,
+      "last_time_ms": 1789084800000,
+      "first_date": "2019-12-23T00:00:00+00:00",
+      "last_date": "2026-09-11T00:00:00+00:00"
+    },
+    "index_price_klines_1d": {
+      "pages": [],
+      "total_rows": 0,
+      "first_time_ms": null,
+      "last_time_ms": null,
+      "first_date": null,
+      "last_date": null,
+      "skipped": "not applicable to a linear contract"
+    },
+    "funding_rate": {
+      "pages": [
+        {
+          "file": "funding_rate/page_001.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1567900800000&limit=1000",
+          "rows": 1000,
+          "sha256": "9614a223d9b82f8a63cda51aa7daab0c1bccb2b0efb9126408f6bc38f7ed39d1",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_002.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1596873600001&limit=1000",
+          "rows": 1000,
+          "sha256": "f1bacf6688fa743ee3fb9fa273c392ba3ede10edceb8d075c4ceab58ee69c064",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_003.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1625673600009&limit=1000",
+          "rows": 1000,
+          "sha256": "2d15f9245377dcf3ede23df4603cf941bce69c96869abb09f6adc1d2b9a3ef65",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_004.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1654473600001&limit=1000",
+          "rows": 1000,
+          "sha256": "38a33078583c79d1a3fff4fe6d323a27a9a9699cb035ebefc66259f4babf0cb9",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_005.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1683273600001&limit=1000",
+          "rows": 1000,
+          "sha256": "e761a9a69f1ecbb5dd340e748a5043f7d3c237daf1baedf1f522aed266bfe6a8",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_006.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1712073600001&limit=1000",
+          "rows": 1000,
+          "sha256": "e885113e5d11a9718c0a0c3e8c0ccdde1337b8fc6dbf73e569dcd7527f638c96",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_007.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1740873600001&limit=1000",
+          "rows": 1000,
+          "sha256": "6ea7daa165872961bacd58d58128834ff801437bc1075a34b0809ca2d4d8d05a",
+          "verified": true
+        },
+        {
+          "file": "funding_rate/page_008.json",
+          "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1769673600010&limit=1000",
+          "rows": 674,
+          "sha256": "ac9358bed8964778a6bb26355ba578e9dc43f3d52031f1e285b3d7288b1b452f",
+          "verified": true
+        }
+      ],
+      "total_rows": 7674,
+      "first_time_ms": 1568102400000,
+      "last_time_ms": 1789084800008,
+      "first_date": "2019-09-10T08:00:00+00:00",
+      "last_date": "2026-09-11T00:00:00.008000+00:00"
+    },
+    "mark_price_klines_8h": {
+      "pages": [
+        {
+          "file": "mark_price_klines_8h/page_001.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=8h&startTime=1567900800000&limit=1500",
+          "rows": 1500,
+          "sha256": "1be8a9ba4fffd8c1ea290d4f9d85d35afab8b620605098820b29a3c1488b0813",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_002.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=8h&startTime=1620259200001&limit=1500",
+          "rows": 1500,
+          "sha256": "5118fd15e62fbf2eb934e10d71a0e43d54e2c7187d30cae5e835b9560cd9d587",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_003.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=8h&startTime=1663459200001&limit=1500",
+          "rows": 1500,
+          "sha256": "d4588a67f45fcb7e3756eab312178dead9f7a4b8cf5de7d5d04c126b377f442b",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_004.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=8h&startTime=1706659200001&limit=1500",
+          "rows": 1500,
+          "sha256": "41b8553a66469567ab9e4a261fdcb925bd0a632fa175ba4637935ee44f04148f",
+          "verified": true
+        },
+        {
+          "file": "mark_price_klines_8h/page_005.json",
+          "url": "https://fapi.binance.com/fapi/v1/markPriceKlines?symbol=BTCUSDT&interval=8h&startTime=1749859200001&limit=1500",
+          "rows": 1362,
+          "sha256": "427406583466664ba94c26fc2abead363006641804795b4709087b257ff259e7",
+          "verified": true
+        }
+      ],
+      "total_rows": 7362,
+      "first_time_ms": 1577088000000,
+      "last_time_ms": 1789084800000,
+      "first_date": "2019-12-23T08:00:00+00:00",
+      "last_date": "2026-09-11T00:00:00+00:00"
+    }
+  },
+  "snapshots": {
+    "exchange_info": {
+      "file": "exchange_info.json",
+      "url": "https://fapi.binance.com/fapi/v1/exchangeInfo",
+      "sha256": "cd894a9968c186cc8dcb97649bb18ce689752e8749cbbc0433da857f5597db2d"
+    },
+    "premium_index": {
+      "file": "premium_index.json",
+      "url": "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT",
+      "sha256": "2baf6387447d08c4a7ecaea1580be791911d95949dd63985dc0eb3368d4c39bc"
+    },
+    "server_time": {
+      "file": "server_time.json",
+      "url": "https://fapi.binance.com/fapi/v1/time",
+      "sha256": "198d19d2dd84ca8c3638e2ef9bdb56a095966f84456a763a890154d6401c47e1"
+    }
+  },
+  "fetched_at_utc": "2026-09-11T07:01:50.393156+00:00",
+  "source": {
+    "exchange": "Binance USDT-M public REST",
+    "base_url": "https://fapi.binance.com",
+    "symbol": "BTCUSDT",
+    "pair": "BTCUSDT",
+    "caveat": "LINEAR contract. Price and funding-rate series only; inverse PnL maths do not carry over. Usable for the V5 study only if docs/strategy_v5_sample_extension.md section 3 proxy gate passes."
+  },
+  "collection_method": "btc_inventory_quant.data.downloader (httpx, verbatim JSON, canonical sha256)"
+}

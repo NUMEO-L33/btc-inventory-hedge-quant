@@ -96,13 +96,22 @@ def cmd_research(args: argparse.Namespace) -> int:
 
 
 def cmd_data(args: argparse.Namespace) -> int:
-    from btc_inventory_quant.data.downloader import BinanceCoinMPublicDownloader, verify_manifest
+    from btc_inventory_quant.data.downloader import (
+        BinanceCoinMPublicDownloader,
+        BinanceUsdtMPublicDownloader,
+        verify_manifest,
+    )
 
     raw = Path(args.raw_dir)
     if args.data_cmd == "download":
-        dl = BinanceCoinMPublicDownloader(
-            raw, symbol=args.symbol, pair=args.pair, base_url=args.base_url
-        )
+        dl: BinanceCoinMPublicDownloader
+        if getattr(args, "usdt_m", False):
+            # V5 sample-extension study only — see docs/strategy_v5_sample_extension.md
+            dl = BinanceUsdtMPublicDownloader(raw, symbol=args.symbol)
+        else:
+            dl = BinanceCoinMPublicDownloader(
+                raw, symbol=args.symbol, pair=args.pair, base_url=args.base_url
+            )
         manifest = dl.download_all(include_8h_mark=args.include_8h_mark)
         for name, ds in manifest["datasets"].items():
             print(
@@ -185,6 +194,10 @@ def _add_data_options(p: argparse.ArgumentParser, suppress: bool = False) -> Non
     p.add_argument("--pair", **_opt_kwargs(suppress, default="BTCUSD"))
     p.add_argument("--base-url", **_opt_kwargs(suppress, default="https://dapi.binance.com"))
     p.add_argument("--include-8h-mark", action="store_true", **_opt_kwargs(suppress, default=False))
+    # V5 study only: USDT-M BTCUSDT reaches back to 2019-09 (COIN-M starts 2020-08), which is how
+    # the March 2020 crash enters the sample with REAL funding rates. Linear contract - price and
+    # funding series only. docs/strategy_v5_sample_extension.md
+    p.add_argument("--usdt-m", action="store_true", **_opt_kwargs(suppress, default=False))
     p.add_argument("--as-of", **_opt_kwargs(suppress, default=None))
 
 
