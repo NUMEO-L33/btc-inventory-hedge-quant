@@ -12,8 +12,17 @@
 <dict>
   <key>Label</key>
   <string>com.numeo.btc-inventory-quant.shadow</string>
+  <!--
+    caffeinate -s keeps the Mac awake FOR AS LONG AS THIS PROCESS RUNS, and only while it is on
+    mains power (macOS ignores the assertion on battery, by design). Without it the machine
+    sleeps, the daily decision fires whenever the lid next opens - week one ran 0 to 113 minutes
+    late every day - and the backtest's assumption of a fill at 00:05 UTC stops being true.
+    -s asserts "system stays awake"; the display still sleeps and the disk still idles.
+  -->
   <key>ProgramArguments</key>
   <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-s</string>
     <string>/PATH/TO/REPO/.venv/bin/python</string>
     <string>-m</string>
     <string>btc_inventory_quant</string>

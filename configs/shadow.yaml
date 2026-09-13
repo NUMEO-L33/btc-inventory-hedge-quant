@@ -4,11 +4,16 @@ mode: shadow
 # Strategy: regime_hedge_v1 was REJECTED by the V2 study (docs/strategy_v2.md §6.1) — static
 # hedging beat it on the full period, out-of-sample, walk-forward fold wins and trade count.
 #
-# The ratio below is a CONSERVATIVE DEFAULT, not an optimisation result. The V3 study
+# The ratio below was REVIEWED AND CONFIRMED by the owner on 2026-09-11 against the full
+# frontier table (docs/strategy_v3_static_ratio.md §4, §6.1, §8). It is a stated risk preference,
+# not a placeholder — and still not an optimisation result, because there is none. The V3 study
 # (docs/strategy_v3_static_ratio.md) found NO optimal static ratio exists in this data: the
 # trade-off is linear (~0.33% BTC per 180 days per 1pp of drawdown reduction) and adjacent-grid
-# noise is as large as the whole spread. 20% is chosen only because 10-20% is the one region that
-# survives every robustness check (-1bp adverse funding, and the least-bad worst 2-year window).
+# noise is as large as the whole spread. 20% is chosen because across ALL 14 start-date windows
+# it is the top of the band where the final BTC count is not dominated by WHEN you started
+# (best/worst = 1.69x at 20%, versus 9.91x at 85%) - see §10. The earlier justification, "the one
+# region that survives every robustness check", was withdrawn: that check required full-period BTC
+# growth, and in this dataset that growth comes from the single 2022 drawdown.
 #
 # Raising it buys drawdown reduction and costs BTC in bull markets: at 85% the worst 2-year window
 # ended at 0.284 BTC and -1bp/8h adverse funding turns it into a FAIL. Read §6 before changing it.
@@ -53,4 +58,8 @@ storage:
   database_url: sqlite:///state/shadow.sqlite3
 
 monitoring:
-  alert_channels: [log]
+  # Week one engaged SAFE_HOLD on day two and nobody knew for six days, because CRITICAL alerts
+  # only reached a log file. An unattended run needs a channel that leaves the machine.
+  # Credentials live in .env (BIQ_TELEGRAM_BOT_TOKEN / BIQ_TELEGRAM_CHAT_ID); if they are absent
+  # the channel is skipped with a warning and the run continues on the log channel alone.
+  alert_channels: [log, telegram]

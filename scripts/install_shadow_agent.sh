@@ -40,12 +40,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "src"))
 from btc_inventory_quant.config.loader import load_config
 
+from btc_inventory_quant.config.settings import Settings
+
 cfg = load_config(Path(sys.argv[1]) / "configs" / "shadow.yaml")
 ratio = getattr(cfg.strategy.fixed_hedge, "ratio", None)
+channels = [c.value for c in cfg.monitoring.alert_channels]
 print(f"  mode      : {cfg.mode.value}")
 print(f"  strategy  : {cfg.strategy.name}" + (f" @ {ratio}" if ratio is not None else ""))
 print(f"  exchange  : {cfg.exchange.name.value} ({cfg.exchange.environment}) — paper account")
 print(f"  database  : {cfg.storage.database_url}")
+print(f"  alerts    : {', '.join(channels)}")
+
+# Not fatal: shadow trades nothing. But an unattended run whose only alert channel is a log file
+# is how week one spent six days in SAFE_HOLD unnoticed, so say it out loud at install time.
+s = Settings()
+if "telegram" in channels and not (s.telegram_bot_token and s.telegram_chat_id):
+    print("  WARNING   : telegram is configured but BIQ_TELEGRAM_BOT_TOKEN/CHAT_ID are unset")
+    print("              -> alerts will only reach state/shadow.log; nothing will page you")
+elif channels == ["log"]:
+    print("  WARNING   : alerts only go to the log file; nobody is notified if this stops")
 PY
 
 # --- install ------------------------------------------------------------------------------------

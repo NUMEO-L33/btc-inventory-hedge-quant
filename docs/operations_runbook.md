@@ -42,17 +42,56 @@ bash scripts/install_shadow_agent.sh --uninstall  # 중지
 ```
 Shadow 는 **API 키가 필요 없다** — 실시간 공개 시세를 읽고 계좌는 시뮬레이션이므로 실주문이 구조적으로 불가능하다.
 
+알림을 기계 밖으로 내보낸다(권장). `.env` 에:
+```
+BIQ_TELEGRAM_BOT_TOKEN=...      # @BotFather → /newbot
+BIQ_TELEGRAM_CHAT_ID=...        # 봇에게 아무 메시지나 보낸 뒤 getUpdates 의 chat.id
+```
+`configs/shadow.yaml` 은 이미 `alert_channels: [log, telegram]` 이다. 자격증명이 없으면 경고만
+남기고 로그 채널로 계속 돈다 — 설치 스크립트가 사전 점검에서 이를 알려준다.
+
 **주간 점검 항목** (`status --config configs/shadow.yaml`):
 
 | 필드 | 정상 | 이상하면 |
 |---|---|---|
-| `system_state` | `RUNNING` | `SAFE_HOLD` 면 `safe_hold_reason` 확인 |
+| `system_state` | `NORMAL` | `SAFE_HOLD` 면 `safe_hold_reason` 확인 |
 | `latest_decision.ts` | 최근 24시간 이내 | 오래됐으면 데몬이 멈춘 것 — `state/shadow.log` |
 | `latest_reconciliation.ok` | `true` | 내부 원장과 페이퍼 계좌 불일치 |
 | `unresolved_orders` | `[]` | 미확인 주문 잔존 |
+| `websocket_connected` | `true` | **이 값만으로는 판단하지 말 것** — 죽은 소켓도 `true` 를 보고한다([인시던트](incident_2026-09-05_stream_silence.md)). 로그의 `forcing stream reconnect` 빈도를 함께 본다 |
 | `recent_events` | ERROR 없음 | 재연결·시세 지연 반복 여부 |
 
+**스테일 데이터는 더 이상 SAFE_HOLD 를 즉시 걸지 않는다.** 스트림이 조용하면 그 사이클의 주문만
+막고(`action: blocked`), 스트림은 스스로 재연결한다. `risk.stale_data_cycles_to_safe_hold`(기본 3)
+연속 사이클 동안 회복하지 못하면 그때 래치한다. 배경은 [인시던트
+2026-09-05](incident_2026-09-05_stream_silence.md).
+
+SAFE_HOLD 가 걸렸다면 원인을 먼저 확인하고, 해소된 뒤에 해제한다:
+```bash
+python -m btc_inventory_quant status --config configs/shadow.yaml    # safe_hold_reason
+python -m btc_inventory_quant safe-hold --config configs/shadow.yaml \
+    --release --ack I_ACCEPT_COIN_M_TRADING_RISK
+```
+
+에이전트는 `caffeinate -s` 로 파이썬을 감싸 실행한다. 절전되면 그날의 판단이 덮개를 여는 시각에
+실행되어 백테스트 가정(00:05 UTC 체결)이 깨지기 때문이다. 확인:
+
+```bash
+ps aux | grep "[c]affeinate"                        # caffeinate -s ... shadow 가 보여야 한다
+pmset -g assertions | grep -i -A1 PreventSystemSleep
+```
+
+`-s` 는 `PreventSystemSleep` 어서션을 만든다 — `PreventUserIdleSystemSleep` 이 아니다. 후자로
+grep 하면 macOS 자체의 "화면 켜져 있을 때" 어서션(powerd)만 보이고 우리 것은 안 보인다.
+
+**이것이 막아주지 못하는 것**: `-s` 는 **전원 연결 중에만** 유효하고(배터리에서는 macOS 가 무시),
+**덮개를 닫으면 그래도 잠든다**. 즉 절전 자체를 없앨 수는 없다. 덮개를 닫는 경우는 스트림의 정지
+감지가 처리한다 — 깨어난 뒤 강제 재연결하고, 스테일 판정은 래치하지 않는다.
+
 **Shadow 가 알려주는 것과 아닌 것**: 20% 정적 헤지의 *성과*는 백테스트로 이미 안다. 여기서 새로 얻는 정보는 **운영 계층**이다 — 데몬이 몇 주간 살아남는가, 재연결이 되는가, 원장이 어긋나지 않는가. 최소 2~4주 관찰 후 다음 단계.
+
+1주차(2026-09-04 ~ 09-11)는 **운영 버그 3건을 잡았고 전략 관찰은 0일**로 끝났다. 기록은
+[docs/incident_2026-09-05_stream_silence.md](incident_2026-09-05_stream_silence.md).
 
 ## 3. Testnet(데모)
 

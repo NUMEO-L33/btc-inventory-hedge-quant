@@ -1,0 +1,32 @@
+# Keep secrets and host-specific junk out of the BUILD CONTEXT, not just out of the image.
+# No COPY in the Dockerfile reaches .env, but the daemon still receives everything the context
+# holds, and that context is 391 MB without this file - 335 MB of which is a macOS .venv that
+# could not run in a Linux image anyway.
+#
+# NOTE: data/raw IS copied by the Dockerfile (market data + exchange_info). Do not exclude it.
+
+.env
+.env.*
+!.env.example
+
+.venv/
+venv/
+.git/
+.gitignore
+.github/
+
+state/
+reports/
+*.sqlite3
+*.sqlite3-journal
+
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.DS_Store
+*.swp
