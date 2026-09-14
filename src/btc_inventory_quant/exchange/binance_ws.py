@@ -209,6 +209,7 @@ class _BaseStream:
         name: str,
         *,
         backoff_max: float = 30.0,
+        backoff_initial: float = 0.5,
         recv_timeout: float = 5.0,
         max_connection_age: float = 23 * 3600,
         continuous: bool = False,
@@ -218,6 +219,7 @@ class _BaseStream:
         self.name = name
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._backoff_initial = backoff_initial
         self._lock = threading.Lock()
         self._connected = False
         self._last_message_at: datetime | None = None
@@ -245,8 +247,24 @@ class _BaseStream:
 
     # --- lifecycle --------------------------------------------------------
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
+        """Start the consumer thread. Safe to call after :meth:`stop` even if the old thread
+        is still winding down: we wait for it rather than silently doing nothing.
+
+        The silent no-op was a real failure (2026-09-14 00:16 UTC): ``restart()`` ran while the
+        thread was inside a 30 s reconnect backoff, ``stop()`` gave up joining after 5 s,
+        ``start()`` saw a live thread and returned, and the old thread then exited on its own
+        — leaving no thread at all until the supervisor's cooldown expired 18 minutes later.
+        """
+        old = self._thread
+        if old and old.is_alive():
+            if not self._stop.is_set():
+                return  # genuinely running, nothing to do
+            old.join(self._backoff_max + 5.0)  # a stop is pending; let it finish
+            if old.is_alive():
+                log.error(
+                    "stream thread did not exit after stop; starting a replacement anyway",
+                    fields={"stream": self.name},
+                )
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._thread_main, name=f"ws-{self.name}", daemon=True
@@ -257,6 +275,15 @@ class _BaseStream:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout)
+
+    async def _sleep_unless_stopped(self, seconds: float) -> None:
+        """Backoff that notices ``stop()`` within half a second instead of sleeping it out."""
+        end = time.monotonic() + seconds
+        while not self._stop.is_set():
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return
+            await asyncio.sleep(min(0.5, remaining))
 
     def alive(self) -> bool:
         """The consumer thread is running. False means only a restart can recover it."""
@@ -297,21 +324,31 @@ class _BaseStream:
     def _thread_main(self) -> None:
         try:
             asyncio.run(self._run())
-        except Exception as exc:  # pragma: no cover - last resort
+        except (
+            BaseException
+        ) as exc:  # pragma: no cover - last resort; CancelledError is not Exception
             with self._lock:
                 self._last_error = repr(exc)
                 self._connected = False
+            log.error("stream thread died", fields={"stream": self.name, "error": repr(exc)})
+            return
+        with self._lock:
+            self._connected = False
+        if not self._stop.is_set():
+            # A thread that returns without being asked to is a bug, not a shutdown; say so
+            # loudly so the supervisor's "thread dead" restart has a cause next to it in the log.
+            log.error("stream thread exited without a stop request", fields={"stream": self.name})
 
     async def _run(self) -> None:
         import websockets
 
-        delay = 0.5
+        delay = self._backoff_initial
         while not self._stop.is_set():
             try:
                 url = self._url()
             except Exception as exc:  # listenKey fetch failed etc.
                 self._note_error(exc)
-                await asyncio.sleep(delay)
+                await self._sleep_unless_stopped(delay)
                 delay = min(self._backoff_max, delay * 2)
                 continue
             connected_at = time.monotonic()
@@ -323,7 +360,7 @@ class _BaseStream:
                         self._connected = True
                         self._last_error = ""
                     await self._on_connected()
-                    delay = 0.5
+                    delay = self._backoff_initial
                     while not self._stop.is_set():
                         if time.monotonic() - connected_at > self._max_connection_age:
                             log.info(
@@ -351,7 +388,7 @@ class _BaseStream:
                 self._reconnects += 1
             if self._stop.is_set():
                 break
-            await asyncio.sleep(delay)
+            await self._sleep_unless_stopped(delay)
             delay = min(self._backoff_max, delay * 2)
 
     def _reconnect_reason(self, connected_wall: float, last_tick: float) -> str:

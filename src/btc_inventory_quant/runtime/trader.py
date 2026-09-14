@@ -197,6 +197,10 @@ class Trader:
         if not self.started:
             raise RuntimeError("call start() first")
         assert self.portfolio is not None
+        # Waking past the decision time runs the cycle before any heartbeat gets a turn, so a
+        # stream that died during sleep would be judged before anyone tried to repair it.
+        # Give the supervisor first go; if data is still stale the guard blocks, as it should.
+        self._supervise_streams()
         if self.kill_switch.engaged:
             self._cancel_once_in_safe_hold()
             self._update_metrics(now, None, None)
@@ -630,8 +634,12 @@ class Trader:
         alive = self.streams.alive()
         if alive and not (silence is not None and silence > limit):
             return
+        # The cooldown exists so an offline network is not "fixed" every poll. A dead thread is
+        # a different condition: nothing is running, so restarting it cannot churn, and waiting
+        # out the cooldown just leaves the stream dead longer (18 minutes on 2026-09-14).
         if (
-            self._last_stream_restart is not None
+            alive
+            and self._last_stream_restart is not None
             and (now - self._last_stream_restart).total_seconds() < limit
         ):
             return

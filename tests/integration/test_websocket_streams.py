@@ -341,6 +341,26 @@ def test_a_reconnected_user_stream_forgets_its_position_snapshot() -> None:
         server.stop()
 
 
+def test_restart_during_a_long_backoff_leaves_a_live_new_thread() -> None:
+    """2026-09-14 00:16 UTC: the supervisor restarted the bundle while the thread was asleep in
+    a 30 s reconnect backoff. stop() gave up joining after 5 s, start() saw a live thread and did
+    nothing, and the old thread then exited on its own - no stream at all for 18 minutes."""
+    # nothing listens here, so the first connect fails and the thread enters its backoff sleep
+    stream = MarkPriceStream(
+        "ws://127.0.0.1:9", "BTCUSD_PERP", backoff_initial=6.0, backoff_max=6.0, recv_timeout=0.2
+    )
+    stream.start()
+    try:
+        assert _wait(lambda: stream.status().reconnects >= 1, timeout=5)
+        old = stream._thread
+        stream.stop()
+        stream.start()
+        assert stream.alive(), "no thread after restart"
+        assert stream._thread is not old, "start() silently kept the thread that was told to stop"
+    finally:
+        stream.stop()
+
+
 @pytest.mark.parametrize("payload", [ORDER_TRADE_UPDATE, ACCOUNT_UPDATE, MARK_PRICE_UPDATE])
 def test_payloads_round_trip_json(payload: dict[str, Any]) -> None:
     assert json.loads(json.dumps(payload)) == payload

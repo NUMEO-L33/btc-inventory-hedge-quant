@@ -24,9 +24,12 @@ class FakeStreams:
     enabled = True
     user = None
 
-    def __init__(self, silence: float | None = 0.0, alive: bool = True) -> None:
+    def __init__(
+        self, silence: float | None = 0.0, alive: bool = True, network_up: bool = True
+    ) -> None:
         self.silence = silence
         self._alive = alive
+        self.network_up = network_up  # a restart only helps if the network is actually there
         self.restarts = 0
 
     def start(self) -> None:
@@ -48,9 +51,12 @@ class FakeStreams:
         return self.silence
 
     def restart(self) -> None:
+        # Like the real StreamBundle: the thread comes back, but silence is measured from the
+        # last MESSAGE, so it only clears once the network delivers one.
         self.restarts += 1
         self._alive = True
-        self.silence = 0.0
+        if self.network_up:
+            self.silence = 0.0
 
 
 def _run_stale_cycles(h: Harness, n: int) -> list[Any]:
@@ -63,7 +69,7 @@ def _run_stale_cycles(h: Harness, n: int) -> list[Any]:
 
 def test_stale_data_blocks_trading_but_does_not_latch_safe_hold(tmp_path: Path) -> None:
     h = Harness(tmp_path, risk={"stale_data_cycles_to_safe_hold": 3})
-    streams = FakeStreams(silence=90_000.0)  # the 24.8 h of silence we actually observed
+    streams = FakeStreams(silence=90_000.0, network_up=False)  # the 24.8 h we actually observed
     trader = h.build_trader(streams=streams)
     trader.start()
     h.market.cursor = WARMUP + 1
@@ -77,7 +83,7 @@ def test_stale_data_blocks_trading_but_does_not_latch_safe_hold(tmp_path: Path) 
 
 def test_stale_data_recovers_by_itself_when_the_stream_comes_back(tmp_path: Path) -> None:
     h = Harness(tmp_path, risk={"stale_data_cycles_to_safe_hold": 3})
-    streams = FakeStreams(silence=90_000.0)
+    streams = FakeStreams(silence=90_000.0, network_up=False)
     trader = h.build_trader(streams=streams)
     trader.start()
     h.market.cursor = WARMUP + 1
@@ -85,7 +91,7 @@ def test_stale_data_recovers_by_itself_when_the_stream_comes_back(tmp_path: Path
     _run_stale_cycles(h, 2)
     assert not h.ks.engaged
 
-    streams.silence = 1.0  # the stream reconnected on its own
+    streams.network_up = True  # the network is back; the next repair attempt succeeds
     res = trader.cycle()
 
     assert not any(g.code == "WS_SILENT" for g in res.guard_failures)
@@ -96,7 +102,7 @@ def test_stale_data_recovers_by_itself_when_the_stream_comes_back(tmp_path: Path
 
 def test_stale_data_engages_safe_hold_once_it_outlives_the_transient(tmp_path: Path) -> None:
     h = Harness(tmp_path, risk={"stale_data_cycles_to_safe_hold": 3})
-    streams = FakeStreams(silence=90_000.0)
+    streams = FakeStreams(silence=90_000.0, network_up=False)
     trader = h.build_trader(streams=streams)
     trader.start()
     h.market.cursor = WARMUP + 1
@@ -111,14 +117,14 @@ def test_stale_data_engages_safe_hold_once_it_outlives_the_transient(tmp_path: P
 def test_the_stale_counter_survives_a_restart(tmp_path: Path) -> None:
     """A process restart must not wipe the evidence that data has been stale for days."""
     h = Harness(tmp_path, risk={"stale_data_cycles_to_safe_hold": 3})
-    trader = h.build_trader(streams=FakeStreams(silence=90_000.0))
+    trader = h.build_trader(streams=FakeStreams(silence=90_000.0, network_up=False))
     trader.start()
     h.market.cursor = WARMUP + 1
     _run_stale_cycles(h, 2)
     assert not h.ks.engaged
 
     h.new_exchange()  # fresh process, same database
-    trader = h.build_trader(streams=FakeStreams(silence=90_000.0))
+    trader = h.build_trader(streams=FakeStreams(silence=90_000.0, network_up=False))
     trader.start()
     h.market.cursor = WARMUP + 4
     trader.cycle()
@@ -139,14 +145,47 @@ def test_heartbeat_restarts_streams_whose_thread_has_died(tmp_path: Path) -> Non
     assert streams.alive()
 
 
+def test_a_dead_stream_thread_is_restarted_without_waiting_out_the_cooldown(
+    tmp_path: Path,
+) -> None:
+    """The cooldown protects against churn on a dead network. A dead THREAD is not churn - nothing
+    is running - and on 2026-09-14 the cooldown left it dead for 18 minutes."""
+    h = Harness(tmp_path)
+    streams = FakeStreams(silence=0.0, alive=False)
+    trader = h.build_trader(streams=streams)
+    trader.start()
+
+    trader._heartbeat()  # restarts, starts the cooldown
+    streams._alive = False  # dies again immediately
+    trader._heartbeat()
+
+    assert streams.restarts == 2, "a dead thread must not wait for the cooldown"
+
+
+def test_cycle_gives_the_supervisor_first_go_before_judging_stale_data(tmp_path: Path) -> None:
+    """Waking past the decision time runs cycle() before any heartbeat, so a stream that died
+    during sleep was judged stale before anyone tried to repair it (2026-09-14 00:05 UTC)."""
+    h = Harness(tmp_path)
+    streams = FakeStreams(silence=90_000.0, alive=False)
+    trader = h.build_trader(streams=streams)
+    trader.start()
+    h.market.cursor = WARMUP + 1
+
+    res = trader.cycle()
+
+    assert streams.restarts >= 1, "cycle() must attempt a repair before evaluating the guard"
+    assert not any(g.code == "WS_SILENT" for g in res.guard_failures), (
+        "the repaired stream (silence reset by restart) must not be judged stale"
+    )
+
+
 def test_stream_restart_is_rate_limited_when_the_network_is_simply_down(tmp_path: Path) -> None:
     h = Harness(tmp_path)
-    streams = FakeStreams(silence=90_000.0)
+    streams = FakeStreams(silence=90_000.0, network_up=False)  # nothing will arrive
     trader = h.build_trader(streams=streams)
     trader.start()
 
     for _ in range(5):
-        streams.silence = 90_000.0  # still nothing arriving
         trader._heartbeat()
 
     assert streams.restarts == 1, "restarting on every poll would churn, not recover"
