@@ -365,3 +365,21 @@ def test_restart_during_a_long_backoff_leaves_a_live_new_thread() -> None:
 def test_payloads_round_trip_json(payload: dict[str, Any]) -> None:
     assert json.loads(json.dumps(payload)) == payload
     assert websockets.__version__
+
+
+def test_every_connect_attempt_moves_the_activity_marker() -> None:
+    """The supervisor tells a loop that is retrying from one that is stuck by watching this
+    marker change between polls; a loop that keeps failing to connect must still move it."""
+    stream = MarkPriceStream("ws://127.0.0.1:9", "BTCUSD_PERP", backoff_max=0.2, recv_timeout=0.2)
+    bundle = StreamBundle(mark=stream)
+    stream.start()
+    try:
+        assert _wait(lambda: stream.status().reconnects >= 1, timeout=5)
+        first = bundle.activity_marker()
+        assert first[0][0] == "mark_price"
+        assert first[0][2] is not None, "a connect attempt must be recorded even when it fails"
+        assert _wait(lambda: bundle.activity_marker() != first, timeout=5), (
+            "the next (failed) attempt must move the marker"
+        )
+    finally:
+        stream.stop()

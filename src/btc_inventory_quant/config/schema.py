@@ -247,6 +247,9 @@ class ExecutionConfig(StrictModel):
         "00:05", pattern=r"^\d{2}:\d{2}$"
     )  # after the daily candle closes
     poll_interval_seconds: int = Field(30, ge=5)
+    # a decision that failed for a transient reason (exchange unreachable, streams still stale)
+    # is retried this often until it goes through or the next decision time arrives
+    decision_retry_seconds: int = Field(600, ge=60)
 
 
 class StorageConfig(StrictModel):

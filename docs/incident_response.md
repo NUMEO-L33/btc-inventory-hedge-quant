@@ -20,7 +20,7 @@
 | 유지증거금 급증 | `check_margin_buffer` | MARGIN_RATIO |
 | 예상외 입출금 | `check_unexpected_transfers` | UNEXPECTED_TRANSFER |
 | 주문 결과 불명 | `OrderManager.resolve_uncertain` | order_unresolved |
-| 연속 접속 실패(3회) | `Trader.cycle` | exchange_unavailable |
+| 연속 접속 실패(판단일 기준 3일 연속 — 같은 날의 재시도는 1회로 센다) | `Trader.cycle` | exchange_unavailable |
 | 알 수 없는 예외 | `Trader.cycle` | unexpected error |
 
 ## 2. 대응 절차

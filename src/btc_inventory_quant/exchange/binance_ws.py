@@ -179,11 +179,22 @@ class StreamStatus:
     continuous: bool = False
     forced_reconnects: int = 0
     last_reconnect_reason: str = ""
+    last_connect_attempt_at: datetime | None = None
 
     def silence_seconds(self, now: datetime) -> float | None:
         if self.last_message_at is None:
             return None
         return (now - self.last_message_at).total_seconds()
+
+    @property
+    def activity(self) -> tuple[datetime | None, datetime | None]:
+        """The last two things the stream's own loop did: deliver a message, attempt a connect.
+
+        A supervisor compares this between polls. A change means the loop is alive and working
+        on its problem (a wake, a dropped socket, a network that is not back yet); the same
+        value across minutes of awake time means the loop is stuck, which only a restart fixes.
+        """
+        return (self.last_message_at, self.last_connect_attempt_at)
 
 
 class ListenKeyProvider(Protocol):
@@ -224,6 +235,7 @@ class _BaseStream:
         self._connected = False
         self._last_message_at: datetime | None = None
         self._last_message_wall: float | None = None
+        self._last_connect_attempt_at: datetime | None = None
         self._reconnects = 0
         self._forced_reconnects = 0
         self._last_reconnect_reason = ""
@@ -301,6 +313,7 @@ class _BaseStream:
                 self._continuous,
                 self._forced_reconnects,
                 self._last_reconnect_reason,
+                self._last_connect_attempt_at,
             )
 
     # --- to override ------------------------------------------------------
@@ -352,6 +365,8 @@ class _BaseStream:
                 delay = min(self._backoff_max, delay * 2)
                 continue
             connected_at = time.monotonic()
+            with self._lock:
+                self._last_connect_attempt_at = datetime.now(tz=UTC)
             try:
                 async with websockets.connect(url, ping_interval=None, max_queue=1024) as ws:
                     connected_wall = time.time()
@@ -618,6 +633,14 @@ class StreamBundle:
     def connected(self) -> bool:
         st = self.statuses()
         return bool(st) and all(s.connected for s in st)
+
+    def activity_marker(self) -> tuple[tuple[str, datetime | None, datetime | None], ...]:
+        """What the streams that are supposed to talk have done lately; compare, don't parse.
+
+        Same streams as :meth:`max_silence_seconds`: the ones whose silence can trigger a
+        supervisor, so the supervisor judges progress on the same streams it judges silence on.
+        """
+        return tuple((s.name, *s.activity) for s in self.statuses() if s.continuous)
 
     def max_silence_seconds(self, now: datetime) -> float | None:
         """Silence of the streams that are supposed to talk. ``None`` when none of them are.

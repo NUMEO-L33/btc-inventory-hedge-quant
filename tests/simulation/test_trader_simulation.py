@@ -82,7 +82,13 @@ class Harness:
             self.market, self.spec, initial_btc=D("1"), taker_fee=D("0.0005"), slippage_bps=D("5")
         )
 
-    def build_trader(self, orders_allowed: bool = True, streams: Any = None) -> Trader:
+    def build_trader(
+        self,
+        orders_allowed: bool = True,
+        streams: Any = None,
+        clock: Any = None,
+        sleep: Any = None,
+    ) -> Trader:
         alerter = Alerter([LogChannel()], async_send=False)
         ks = KillSwitch(self.db, alerter)
         om = OrderManager(
@@ -112,8 +118,8 @@ class Harness:
             guards,
             metrics,
             orders_allowed=orders_allowed,
-            clock=lambda: self.market.now,
-            sleep=lambda s: None,
+            clock=clock or (lambda: self.market.now),
+            sleep=sleep or (lambda s: None),
             streams=streams,
         )
         self.trader = trader

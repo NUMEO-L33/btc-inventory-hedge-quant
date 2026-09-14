@@ -71,6 +71,11 @@ STATE_LAST_FUNDING_SETTLE_MS = "last_paper_funding_settle_ms"
 STATE_PREV_EQUITY = "prev_cycle_equity"
 STATE_PAPER_ACCOUNT = "paper_account"
 STATE_STALE_CYCLES = "stale_data_cycles"
+# Awake time an alive stream may go without a single connect attempt or message before the
+# supervisor concludes its loop is stuck. A healthy loop attempts at least every ~76 s: 30 s
+# backoff + 10 s open timeout when the network is down, 60 s silence + 5 s recv timeout + the
+# connect when a socket is up but dead. Three minutes is a stuck loop, not a slow network.
+STREAM_STALL_SECONDS = 180.0
 
 
 @dataclass(slots=True)
@@ -131,7 +136,13 @@ class Trader:
         self.rebalancer = Rebalancer(spec, config.risk, bypass_cap=strategy.bypass_max_hedge_cap)
         self.portfolio: Portfolio | None = None
         self.consecutive_data_errors = 0
+        self._last_data_error_slot: datetime | None = None
         self._last_stream_restart: datetime | None = None
+        # stream stall tracking: what the streams had done when we last looked, how long (awake)
+        # that has stayed the same, and when we last looked
+        self._stall_marker: Any = None
+        self._stall_awake_seconds = 0.0
+        self._last_supervised_at: datetime | None = None
         self.started = False
 
     # ------------------------------------------------------------------ start
@@ -208,9 +219,20 @@ class Trader:
         try:
             return self._cycle(now)
         except (ExchangeTimeout, ExchangeUnavailable) as exc:
-            self.consecutive_data_errors += 1
             self.metrics.update(api_error_count=self.metrics.current.api_error_count + 1)
-            self.alerter.notify("exchange_unavailable", str(exc), level="WARNING")
+            # Counted once per decision slot, not once per attempt: the run loop retries a
+            # failed decision within the day, and three retries into one outage are one bad
+            # day, not the three bad days this escalation is meant to catch.
+            slot = self.decision_slot(now)
+            if slot != self._last_data_error_slot:
+                self._last_data_error_slot = slot
+                self.consecutive_data_errors += 1
+                self.alerter.notify("exchange_unavailable", str(exc), level="WARNING")
+            else:
+                log.warning(
+                    "exchange still unavailable on retry",
+                    fields={"error": str(exc), "bad_slots": self.consecutive_data_errors},
+                )
             if self.consecutive_data_errors >= 3:
                 self._engage("repeated exchange connectivity failures", {"error": str(exc)})
             return CycleResult(now, "error", message=str(exc))
@@ -598,9 +620,24 @@ class Trader:
                 self.db.set_state(STATE_STALE_CYCLES, {"count": 0})
                 log.info("stale data cleared; streams are live again")
             return False
-        count = int(state.get("count", 0)) + 1
-        self.db.set_state(STATE_STALE_CYCLES, {"count": count, "last": now.isoformat()})
         limit = self.config.risk.stale_data_cycles_to_safe_hold
+        slot = self.decision_slot(now).isoformat()
+        if state.get("slot") == slot:
+            # a retry of the same decision: still blocked, but the same bad day as before, and
+            # the operator has already been told about it once
+            log.warning(
+                "stale market data; still blocked on retry",
+                fields={
+                    "cycle": int(state.get("count", 0)),
+                    "limit": limit,
+                    "guard": guard.message,
+                },
+            )
+            return False
+        count = int(state.get("count", 0)) + 1
+        self.db.set_state(
+            STATE_STALE_CYCLES, {"count": count, "last": now.isoformat(), "slot": slot}
+        )
         if count >= limit:
             self._engage(
                 "stale market data persisted",
@@ -621,22 +658,51 @@ class Trader:
     def _supervise_streams(self) -> None:
         """Restart the stream bundle when its own reconnect loop cannot recover.
 
-        The streams heal themselves inside their background thread within seconds. This covers
-        what that thread cannot: a thread that has died outright, or one reconnecting in a loop
-        without ever producing data. The cooldown stops a genuinely offline network from
-        restarting the streams on every poll.
+        The streams heal themselves inside their background thread: a wake from suspend or a
+        dead socket is noticed by the next ``recv`` timeout and reconnected with backoff, within
+        seconds of the network being there. This covers what that thread cannot: a thread that
+        has died outright, or a loop that is alive but no longer attempting anything.
+
+        An alive stream is therefore never restarted on the strength of silence alone. On a
+        laptop wake the heartbeat often runs *before* the stream thread has had its turn (three
+        of the seven long wakes on 2026-09-13/14), and judging the stream then restarted one
+        that would have reconnected on its own a second later - and paged the operator for it.
+        Instead the supervisor notes what the stream has done (last message, last connect
+        attempt) and restarts only when that stays unchanged for ``STREAM_STALL_SECONDS`` of
+        awake time. Awake time is the sum of the gaps between polls, skipping gaps far longer
+        than the poll interval: those are time the host spent suspended, which the stream thread
+        could not have used either.
         """
         if self.streams is None:
             return
         now = self.clock()
+        poll = self.config.execution.poll_interval_seconds
+        gap = (
+            0.0
+            if self._last_supervised_at is None
+            else (now - self._last_supervised_at).total_seconds()
+        )
+        self._last_supervised_at = now
         silence = self.streams.max_silence_seconds(now)
         limit = self.config.risk.ws_max_silence_seconds
         alive = self.streams.alive()
         if alive and not (silence is not None and silence > limit):
+            self._stall_marker, self._stall_awake_seconds = None, 0.0
             return
-        # The cooldown exists so an offline network is not "fixed" every poll. A dead thread is
-        # a different condition: nothing is running, so restarting it cannot churn, and waiting
-        # out the cooldown just leaves the stream dead longer (18 minutes on 2026-09-14).
+        if alive:
+            marker = self.streams.activity_marker()
+            if marker != self._stall_marker:
+                # first look, or the loop did something since the last one: it is on it
+                self._stall_marker, self._stall_awake_seconds = marker, 0.0
+                return
+            if 0.0 < gap <= 2 * poll:
+                self._stall_awake_seconds += gap
+            if self._stall_awake_seconds < STREAM_STALL_SECONDS:
+                return
+        # The cooldown exists so a loop that stalls again right after a restart is not restarted
+        # every few minutes. A dead thread is a different condition: nothing is running, so
+        # restarting it cannot churn, and waiting out the cooldown just leaves the stream dead
+        # longer (18 minutes on 2026-09-14).
         if (
             alive
             and self._last_stream_restart is not None
@@ -644,7 +710,13 @@ class Trader:
         ):
             return
         self._last_stream_restart = now
-        detail = "thread dead" if not alive else f"silent for {silence:.0f}s"
+        detail = (
+            "thread dead"
+            if not alive
+            else f"silent for {silence:.0f}s, no reconnect attempt for "
+            f"{self._stall_awake_seconds:.0f}s awake"
+        )
+        self._stall_marker, self._stall_awake_seconds = None, 0.0
         log.warning("restarting streams", fields={"reason": detail})
         self.alerter.notify("stream_restart", f"streams restarted ({detail})", level="WARNING")
         try:
@@ -836,6 +908,33 @@ class Trader:
             candidate += timedelta(days=1)
         return candidate
 
+    def decision_slot(self, now: datetime) -> datetime:
+        """The most recent decision time at or before ``now``: which daily decision this is.
+
+        Everything that escalates "one bad cycle" into SAFE_HOLD counts per slot, so that the
+        in-day retries of a single failed decision cannot add up to a latch by themselves.
+        """
+        return self.next_decision_time(now) - timedelta(days=1)
+
+    @staticmethod
+    def retryable(res: CycleResult) -> bool:
+        """A decision that failed for a reason the next few minutes may fix.
+
+        ``error`` is the exchange being unreachable: nothing was decided or recorded. A
+        ``blocked`` decision is retried only when stale stream data was the sole reason; the
+        other soft guards (margin type, leverage setting) describe the account, and a retry
+        would just log the same blocked intent every few minutes until someone changes it.
+        The cycle is idempotent per candle, so retrying a decision that did go through is a
+        no-op.
+        """
+        if res.action == "error":
+            return True
+        return (
+            res.action == "blocked"
+            and bool(res.guard_failures)
+            and all(g.code == "WS_SILENT" for g in res.guard_failures)
+        )
+
     def run(self, once: bool = False, max_cycles: int | None = None) -> int:
         cycles = 0
         self.start()
@@ -849,15 +948,25 @@ class Trader:
             res = self.cycle()
             cycles += 1
             log.info("startup cycle done", fields={"action": res.action, "message": res.message})
+            retry = timedelta(seconds=self.config.execution.decision_retry_seconds)
             while max_cycles is None or cycles < max_cycles:
                 now = self.clock()
                 nxt = self.next_decision_time(now)
-                while self.clock() < nxt:
+                # A laptop that was asleep at the decision time runs the cycle the moment it
+                # wakes, before Wi-Fi is back; without a retry that day's decision is simply
+                # lost, and three such mornings in a row would latch SAFE_HOLD.
+                due = min(nxt, now + retry) if self.retryable(res) else nxt
+                if due < nxt:
+                    log.info(
+                        "decision will be retried",
+                        fields={"at": due.isoformat(), "after": res.action, "why": res.message},
+                    )
+                while self.clock() < due:
                     self._heartbeat()
                     self._sleep(
                         min(
                             self.config.execution.poll_interval_seconds,
-                            max(1.0, (nxt - self.clock()).total_seconds()),
+                            max(1.0, (due - self.clock()).total_seconds()),
                         )
                     )
                 res = self.cycle()

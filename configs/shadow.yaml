@@ -52,6 +52,7 @@ execution:
   policy: market
   decision_time_utc: "00:05"
   poll_interval_seconds: 60
+  decision_retry_seconds: 600   # retry a failed/blocked decision every 10 min until the next decision time
   client_order_id_prefix: biq
 
 storage:

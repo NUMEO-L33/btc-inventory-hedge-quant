@@ -9,7 +9,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
@@ -646,6 +646,7 @@ class ReplayMarketData:
         self.spec = spec
         self.funding = funding
         self.cursor = 0
+        self.clock_offset = timedelta(0)  # time elapsed within the execution day (retries)
         self._rows = self._to_rows(dataset.frame)
 
     @staticmethod
@@ -674,10 +675,15 @@ class ReplayMarketData:
     @property
     def now(self) -> datetime:
         ts: datetime = self.dataset.frame.index[self.cursor].to_pydatetime()
-        return ts.replace(minute=5)
+        return ts.replace(minute=5) + self.clock_offset
 
     def advance(self) -> None:
         self.cursor += 1
+        self.clock_offset = timedelta(0)
+
+    def elapse(self, seconds: float) -> None:
+        """Let time pass within the execution day (a retried decision, a heartbeat)."""
+        self.clock_offset += timedelta(seconds=seconds)
 
     def ping(self) -> bool:
         return True
