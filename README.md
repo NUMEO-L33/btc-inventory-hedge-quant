@@ -3,7 +3,7 @@
 BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 규칙 기반으로 조절**하는 리서치·실행 시스템입니다.
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
-> **현재 상태(2026-09-20)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며 2~4주 운영 관찰이 목표입니다.
+> **현재 상태(2026-09-20)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며, 2026-09-20 부터는 **Testnet(데모 계좌) 에이전트를 병행**해 실제 어댑터 경로(서명 주문·거래소 id·유저 스트림)를 돈 없이 검증합니다. 운영 관찰 목표는 복구 시점(09-20)부터 2~4주입니다.
 >
 > **연구 결론 — 네 라운드가 같은 답으로 수렴했습니다.**
 > * **V1**: 타이밍 알파 미확인 — [docs/strategy_spec.md](docs/strategy_spec.md) §5
@@ -47,9 +47,9 @@ brew install python@3.12                                        # 없을 때만
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 232 tests (unit / integration / simulation)
+python -m pytest -q                                             # 234 tests (unit / integration / simulation)
 ```
-Shadow 상시 실행(macOS): `bash scripts/install_shadow_agent.sh` — 설정 사전 점검 후 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다. 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
+상시 실행(macOS): `bash scripts/install_agent.sh shadow` / `bash scripts/install_agent.sh testnet` — 설정 사전 점검 후 모드별 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다(`install_shadow_agent.sh` 는 shadow 의 별칭). 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
 
 **Windows (PowerShell)**:
 ```powershell

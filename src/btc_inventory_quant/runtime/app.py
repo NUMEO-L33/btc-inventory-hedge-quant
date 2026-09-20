@@ -120,7 +120,10 @@ def build_components(
     exchange = exchange or build_exchange(config, settings, mode)
     spec = load_contract_spec(config.data.exchange_info_path, config.exchange.symbol)
     alerter = build_alerter(
-        settings, tuple(c.value for c in config.monitoring.alert_channels), recorder=_recorder(db)
+        settings,
+        tuple(c.value for c in config.monitoring.alert_channels),
+        recorder=_recorder(db),
+        source=config.mode.value,
     )
     kill_switch = KillSwitch(db, alerter)
     streams = build_streams(config, exchange)
@@ -319,7 +322,10 @@ def ops_command(
     db = Database(config.storage.database_url or settings.database_url)
     db.create_all()
     alerter = build_alerter(
-        settings, tuple(c.value for c in config.monitoring.alert_channels), recorder=_recorder(db)
+        settings,
+        tuple(c.value for c in config.monitoring.alert_channels),
+        recorder=_recorder(db),
+        source=config.mode.value,
     )
     ks = KillSwitch(db, alerter)
     if command == "status":

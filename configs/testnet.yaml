@@ -1,12 +1,16 @@
 # Testnet / demo mode: Binance COIN-M demo environment (https://demo-dapi.binance.com), demo API keys.
-# Demo reachability and key procedure are PARTIAL in the official docs — run `python -m btc_inventory_quant testnet --once`
-# and check the startup report before leaving it unattended.
+# Verified live on 2026-09-02/04 (order, fill, streams, funding settlement) — docs/exchange_api_verification.md
+# §16-17. Run `python -m btc_inventory_quant testnet --once` and read the startup report before
+# leaving it unattended; then `bash scripts/install_agent.sh testnet` keeps it running next to shadow.
+# Known demo limits: no fundingRate history, rates differ from production, FUNDING_FEE truncated at 8 dp.
 mode: testnet
 
 # Strategy: regime_hedge_v1 was REJECTED by the V2 study (docs/strategy_v2.md §6.1).
-# The ratio below is a CONSERVATIVE DEFAULT, not an optimisation result — the V3 study
-# (docs/strategy_v3_static_ratio.md) found no optimal static ratio exists in this data.
-# 10-20% is the only region surviving every robustness check; see §6 before changing it.
+# The ratio is the one the owner confirmed for shadow on 2026-09-11 (see configs/shadow.yaml for
+# the full rationale and docs/strategy_v3_static_ratio.md §10): not an optimisation result — no
+# optimal static ratio exists in this data — but the top of the band where the outcome is least
+# dominated by the start date. Keep it identical to shadow: this agent exists to prove the real
+# adapter path on a demo account, not to test a different ratio.
 strategy:
   name: fixed_hedge
   fixed_hedge:

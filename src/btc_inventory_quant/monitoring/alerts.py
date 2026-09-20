@@ -25,9 +25,12 @@ class Alert:
     level: str
     message: str
     payload: dict[str, Any] | None = None
+    source: str = ""  # which agent sent it (mode name); several agents can share one chat
 
     def text(self) -> str:
         head = f"[{self.level}] {self.event_type}: {self.message}"
+        if self.source:
+            head = f"[{self.source}] {head}"
         if self.payload:
             return (
                 head
@@ -112,10 +115,12 @@ class Alerter:
         channels: list[AlertChannel],
         recorder: Callable[[Alert], None] | None = None,
         async_send: bool = True,
+        source: str = "",
     ) -> None:
         self.channels = channels
         self.recorder = recorder
         self.async_send = async_send
+        self.source = source
         self.failures: dict[str, int] = {}
         self.sent: list[Alert] = []
 
@@ -126,7 +131,7 @@ class Alerter:
         level: str = "INFO",
         payload: dict[str, Any] | None = None,
     ) -> None:
-        alert = Alert(datetime.now(tz=UTC), event_type, level, message, payload)
+        alert = Alert(datetime.now(tz=UTC), event_type, level, message, payload, self.source)
         self.sent.append(alert)
         if len(self.sent) > 1000:
             del self.sent[:-500]
@@ -153,6 +158,7 @@ def build_alerter(
     settings: Settings,
     channel_names: tuple[str, ...],
     recorder: Callable[[Alert], None] | None = None,
+    source: str = "",
 ) -> Alerter:
     channels: list[AlertChannel] = []
     for name in channel_names:
@@ -184,4 +190,4 @@ def build_alerter(
                 log.warning("email alert channel configured but SMTP settings missing; skipping")
     if not channels:
         channels.append(LogChannel())
-    return Alerter(channels, recorder=recorder)
+    return Alerter(channels, recorder=recorder, source=source)

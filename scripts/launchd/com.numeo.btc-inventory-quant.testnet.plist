@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent: keeps testnet (demo) mode running at login and restarts it if it exits.
+  Needs BIQ_BINANCE_DEMO_API_KEY/SECRET in .env; orders go to the Binance DEMO environment only.
+  Install (replace /PATH/TO/REPO with the absolute repository path):
+    sed "s#/PATH/TO/REPO#$(pwd)#g" scripts/launchd/com.numeo.btc-inventory-quant.testnet.plist \
+      > ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.testnet.plist
+    launchctl load ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.testnet.plist
+  Stop:      launchctl unload ~/Library/LaunchAgents/com.numeo.btc-inventory-quant.testnet.plist
+  Logs:      tail -f /PATH/TO/REPO/state/testnet.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.numeo.btc-inventory-quant.testnet</string>
+  <!--
+    caffeinate -s keeps the Mac awake FOR AS LONG AS THIS PROCESS RUNS, and only while it is on
+    mains power (macOS ignores the assertion on battery, by design). Without it the machine
+    sleeps, the daily decision fires whenever the lid next opens - week one ran 0 to 113 minutes
+    late every day - and the backtest's assumption of a fill at 00:05 UTC stops being true.
+    -s asserts "system stays awake"; the display still sleeps and the disk still idles.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-s</string>
+    <string>/PATH/TO/REPO/.venv/bin/python</string>
+    <string>-m</string>
+    <string>btc_inventory_quant</string>
+    <string>testnet</string>
+    <string>--config</string>
+    <string>configs/testnet.yaml</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/PATH/TO/REPO</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BIQ_LOG_JSON</key>
+    <string>true</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>/PATH/TO/REPO/state/testnet.log</string>
+  <key>StandardErrorPath</key>
+  <string>/PATH/TO/REPO/state/testnet.log</string>
+</dict>
+</plist>

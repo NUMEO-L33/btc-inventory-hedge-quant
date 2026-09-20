@@ -109,6 +109,13 @@ grep 하면 macOS 자체의 "화면 켜져 있을 때" 어서션(powerd)만 보�
 5. 상시 실행 후 `reconcile` 로 상태 일치 확인.
 6. **펀딩 공식 검증(최우선)**: 정산 시각(00/08/16 UTC)을 넘긴 뒤 `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml`.
    `verdict: VERIFIED` 면 `docs/inverse_math.md` §6 PARTIAL 해소. 상세 절차는 **[docs/demo_verification_runbook.md](demo_verification_runbook.md)**.
+7. **상시 운영 (shadow 와 병행)**: `bash scripts/install_agent.sh testnet` — 별도 launchd 에이전트
+   (`com.numeo.btc-inventory-quant.testnet`), 별도 DB(`state/testnet.sqlite3`)·로그(`state/testnet.log`).
+   shadow 가 판단·복구 계층을 검증한다면 testnet 은 **실제 어댑터 경로**를 검증한다 — 서명된 주문,
+   거래소가 매기는 id, 실계좌 유저 스트림, 주문 복구. 09-16 인시던트(페이퍼 거래소의 id 충돌)가 보여준
+   것처럼 모의 거래소는 자기 자신을 검증할 수 없다. 두 에이전트의 Telegram 알림은 `[shadow]`/`[testnet]`
+   접두어로 구분된다. 데모로도 검증되지 않는 것: 프로덕션 수수료 등급·유동성, 실제 펀딩 요율, 프로덕션
+   계좌 설정·키 권한.
 
 ## 4. Live (소액)
 
