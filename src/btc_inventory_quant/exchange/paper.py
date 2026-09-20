@@ -6,7 +6,7 @@ sent) and by the resilience tests (scripted timeouts, rejections, partial fills,
 
 from __future__ import annotations
 
-import itertools
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -187,7 +187,7 @@ class PaperExchange:
         self.orders: dict[str, PaperOrder] = {}
         self.trades: list[ExchangeTrade] = []
         self.income_records: list[IncomeRecord] = []
-        self._ids = itertools.count(1)
+        self._next_id = 1  # see _new_id()
         self.position_mode_value = PositionMode.ONE_WAY
         self.leverage = 1
 
@@ -220,7 +220,24 @@ class PaperExchange:
                 else str(self.position.avg_entry_price)
             ),
             "lots": [{"qty": str(lot.qty), "price": str(lot.price)} for lot in self.position.lots],
+            "next_id": self._next_id,
         }
+
+    def _new_id(self) -> str:
+        """Next order / trade / income id.
+
+        These ids are what the ledger dedupes on (``trade:<id>``, ``income:<type>:<id>``), so
+        they must never repeat across process restarts. A plain in-memory counter did: after
+        the 2026-09-14 restart it started again at 1, and on 2026-09-16 three funding
+        settlements got ids 4-6 that the ledger had already seen on 09-12, were skipped as
+        "already mirrored", and the wallet drifted 0.0000388 BTC into SAFE_HOLD. The counter is
+        now saved with the account and, on restore, floored at the current epoch millisecond -
+        because the saved counter can itself be stale (state is written at the end of a
+        successful cycle, and ids issued in a cycle that aborted were never saved).
+        """
+        value = self._next_id
+        self._next_id += 1
+        return str(value)
 
     def restore(self, state: dict[str, Any]) -> None:
         """Reload a previously saved simulated account. Unknown/partial state is refused."""
@@ -244,6 +261,8 @@ class PaperExchange:
         self.position.contracts = contracts
         self.position.avg_entry_price = None if entry_raw is None else Decimal(str(entry_raw))
         self.position.lots = lots
+        saved_next = int(state.get("next_id") or 1)
+        self._next_id = max(saved_next, int(time.time() * 1000))
 
     # ------------------------------------------------------------ market data
     @property
@@ -395,7 +414,7 @@ class PaperExchange:
         order.updated = self._now()
         trade = ExchangeTrade(
             symbol=req.symbol,
-            trade_id=str(next(self._ids)),
+            trade_id=self._new_id(),
             order_id=order.order_id,
             side=req.side,
             price=price,
@@ -415,7 +434,7 @@ class PaperExchange:
                     res.realized_pnl_btc,
                     "BTC",
                     trade.time,
-                    str(next(self._ids)),
+                    self._new_id(),
                     req.symbol,
                     "",
                     trade.trade_id,
@@ -427,7 +446,7 @@ class PaperExchange:
                 -res.fee_btc,
                 "BTC",
                 trade.time,
-                str(next(self._ids)),
+                self._new_id(),
                 req.symbol,
                 "",
                 trade.trade_id,
@@ -455,7 +474,7 @@ class PaperExchange:
                 -4113, "The counterparty's best price does not meet the PERCENT_PRICE filter limit."
             )
         self.spec.validate_qty(request.quantity, market=request.order_type is OrderType.MARKET)
-        order = PaperOrder(request=request, order_id=str(next(self._ids)), status=OrderStatus.NEW)
+        order = PaperOrder(request=request, order_id=self._new_id(), status=OrderStatus.NEW)
         self.orders[request.client_order_id] = order
         mark = self.mark_price()
         if request.order_type is OrderType.MARKET:
@@ -553,14 +572,22 @@ class PaperExchange:
         return None
 
     # ------------------------------------------------------------ simulation
-    def apply_funding(self, rate: Decimal, mark_price: Decimal | None = None) -> Decimal:
+    def apply_funding(
+        self, rate: Decimal, mark_price: Decimal | None = None, tran_id: str | None = None
+    ) -> Decimal:
         mark = mark_price or self.mark_price()
         pay = funding_payment_btc(self.position.contracts, self.spec.contract_value_usd, mark, rate)
         if pay != 0:
             self.wallet_balance += pay
             self.income_records.append(
                 IncomeRecord(
-                    "FUNDING_FEE", pay, "BTC", self._now(), str(next(self._ids)), self.symbol, ""
+                    "FUNDING_FEE",
+                    pay,
+                    "BTC",
+                    self._now(),
+                    tran_id or self._new_id(),
+                    self.symbol,
+                    "",
                 )
             )
         return pay
@@ -584,7 +611,9 @@ class PaperExchange:
             rate = Decimal(str(r["fundingRate"]))
             mp = r.get("markPrice")
             mark = Decimal(str(mp)) if mp not in (None, "", "0") else None
-            pay = self.apply_funding(rate, mark)
+            # the income id is the funding time itself: unique per settlement by construction,
+            # whatever happens to the counter across restarts
+            pay = self.apply_funding(rate, mark, tran_id=f"funding-{t}")
             self._settled_funding_times.add(t)
             applied.append({"fundingTime": t, "rate": str(rate), "amount_btc": str(pay)})
         return applied
@@ -598,7 +627,7 @@ class PaperExchange:
                 amount_btc,
                 "BTC",
                 self._now(),
-                str(next(self._ids)),
+                self._new_id(),
                 "",
                 "DEPOSIT" if amount_btc > 0 else "WITHDRAW",
             )
@@ -613,11 +642,11 @@ class PaperExchange:
             side=side,
             order_type=OrderType.LIMIT,
             quantity=qty,
-            client_order_id=f"manual{next(self._ids)}",
+            client_order_id=f"manual{self._new_id()}",
             price=self.mark_price() * 2,
             time_in_force=TimeInForce.GTC,
         )
-        order = PaperOrder(request=req, order_id=str(next(self._ids)), status=OrderStatus.NEW)
+        order = PaperOrder(request=req, order_id=self._new_id(), status=OrderStatus.NEW)
         self.orders[req.client_order_id] = order
         return order.to_model()
 

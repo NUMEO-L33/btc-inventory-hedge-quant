@@ -3,7 +3,7 @@
 BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 규칙 기반으로 조절**하는 리서치·실행 시스템입니다.
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
-> **현재 상태(2026-09-14)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며 2~4주 운영 관찰이 목표입니다.
+> **현재 상태(2026-09-20)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며 2~4주 운영 관찰이 목표입니다.
 >
 > **연구 결론 — 네 라운드가 같은 답으로 수렴했습니다.**
 > * **V1**: 타이밍 알파 미확인 — [docs/strategy_spec.md](docs/strategy_spec.md) §5
@@ -15,6 +15,8 @@ BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP
 > **정정(2026-09-11)**: V3 의 "모든 강건성 검사를 통과하는 구간 10~20%" 논거는 **PASS 조건이 2022년 폭락 하나의 함수**였음이 드러나 **철회**했습니다. 20% 는 유지하되, 근거는 **14개 시작일 창 전체에서 최종 BTC 가 시작 시점에 가장 덜 좌우되는 구간**(최고/최악 1.69배, 85% 는 9.91배)으로 교체 — V3 §10.
 >
 > **운영 인시던트(2026-09-05)**: 맥북 절전으로 WebSocket 이 `connected=True` 인 채 24.8시간 무음 → 킬스위치가 래치되어 **6일간 SAFE_HOLD, 알림 미도달**. 죽은 소켓 감지·회복 가능 조건의 래치 해제·외부 알림 채널로 수정. 회귀 테스트 10건은 수정 전 코드에서 실패함을 확인했고, **2026-09-13 프로세스를 90초 정지시키는 현장 시험에서 20초 안에 스스로 복구**했다. 이후 복구 경로 자체의 버그 2건(백오프 중 재시작이 스레드를 죽임 · 기상 직후 감시자가 1차 복구를 앞질러 알림)과, 판단 시각에 잠들어 있으면 그날 판단이 사라지는 문제(재시도 추가)를 2026-09-14 에 고쳤다 — [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md)
+>
+> **운영 인시던트(2026-09-16)**: 페이퍼 거래소의 income id 가 재시작 후 1부터 다시 시작해 원장의 중복 제거와 충돌 → 펀딩 3건이 원장에서 빠지고 대사 불일치로 **SAFE_HOLD 4일**(킬스위치는 옳게 동작). 펀딩 id 를 정산 시각으로, 카운터를 재시작 간 유일하게 수정하고 원장을 복구 — [docs/incident_2026-09-16_paper_income_ids.md](docs/incident_2026-09-16_paper_income_ids.md)
 
 ## 1. 핵심 결과 한눈에 (2021-03-10 → 2026-09-01, 실데이터)
 
@@ -45,7 +47,7 @@ brew install python@3.12                                        # 없을 때만
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 229 tests (unit / integration / simulation)
+python -m pytest -q                                             # 232 tests (unit / integration / simulation)
 ```
 Shadow 상시 실행(macOS): `bash scripts/install_shadow_agent.sh` — 설정 사전 점검 후 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다. 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
 

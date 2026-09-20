@@ -96,6 +96,9 @@ grep 하면 macOS 자체의 "화면 켜져 있을 때" 어서션(powerd)만 보�
 
 1주차(2026-09-04 ~ 09-11)는 **운영 버그 3건을 잡았고 전략 관찰은 0일**로 끝났다. 기록은
 [docs/incident_2026-09-05_stream_silence.md](incident_2026-09-05_stream_silence.md).
+2주차(09-11 ~ 09-20)는 복구 경로의 버그 2건(같은 문서 §7–§9)과 페이퍼 거래소의 id 충돌로
+**SAFE_HOLD 4일**([docs/incident_2026-09-16_paper_income_ids.md](incident_2026-09-16_paper_income_ids.md)).
+관찰 시계는 복구 시점(09-20)부터 다시 센다.
 
 ## 3. Testnet(데모)
 
