@@ -47,7 +47,7 @@ brew install python@3.12                                        # 없을 때만
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 234 tests (unit / integration / simulation)
+python -m pytest -q                                             # 237 tests (unit / integration / simulation)
 ```
 상시 실행(macOS): `bash scripts/install_agent.sh shadow` / `bash scripts/install_agent.sh testnet` — 설정 사전 점검 후 모드별 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다(`install_shadow_agent.sh` 는 shadow 의 별칭). 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
 
@@ -130,6 +130,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * WebSocket 스트림은 **2026-09-02 실서버 연결 확인**. REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
 * ~~절전 복구 수정(2026-09-11) 현장 검증 미완~~ → **2026-09-13 현장 검증 완료.** `scripts/test_suspend_recovery.sh` 로 shadow 프로세스를 90초 정지시킨 결과 정지 감지가 발동해 강제 재연결했고 SAFE_HOLD 는 걸리지 않았다(`docs/incident_2026-09-05_stream_silence.md` §6).
 * **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
+* 데모 호스트의 `GET /dapi/v1/income` 은 `incomeType` 없이 호출하면 빈 배열을 돌려준다(문서와 다름, 2026-09-27 실측). 대사 로직은 타입별로 조회하도록 바꿨고 프로덕션 동작은 UNVERIFIED — `docs/exchange_api_verification.md` §18.
 * Docker 이미지 빌드 미검증(개발 환경에 데몬 없음). `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
 * 머신러닝 없음(V1 범위 제외).
 

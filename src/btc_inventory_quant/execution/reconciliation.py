@@ -47,6 +47,20 @@ INCOME_TO_LEDGER = {
     "WELCOME_BONUS": LedgerEntryType.ADJUSTMENT,
     "DELIVERED_SETTELMENT": LedgerEntryType.ADJUSTMENT,
 }
+# Income is fetched one type at a time. The documented behaviour of GET /dapi/v1/income is "if
+# incomeType is not sent, all kinds of flow will be returned", but the demo host returns an EMPTY
+# list for exactly that call (measured 2026-09-27: 0 records unfiltered, 22 with
+# incomeType=FUNDING_FEE, same account, same window). Seven days of demo funding never reached
+# the ledger, and the wallet tolerance hid it. Asking per type is what the docs define, works on
+# both hosts, and costs a few extra weight-20 calls once a day. COMMISSION and REALIZED_PNL are
+# not fetched: they enter the ledger through fills, and sync_income only skips them anyway.
+INCOME_TYPES_SYNCED = (
+    "FUNDING_FEE",
+    "TRANSFER",
+    "INSURANCE_CLEAR",
+    "WELCOME_BONUS",
+    "DELIVERED_SETTELMENT",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,7 +237,11 @@ class Reconciler:
     def sync_income(
         self, portfolio: Portfolio, since_ms: int | None, *, expect_transfers: bool = False
     ) -> dict[str, Any]:
-        records = self.exchange.income(symbol=None, start_ms=since_ms)
+        records: list[IncomeRecord] = []
+        for income_type in INCOME_TYPES_SYNCED:
+            records.extend(
+                self.exchange.income(symbol=None, income_type=income_type, start_ms=since_ms)
+            )
         applied = 0
         unexpected_transfers: list[IncomeRecord] = []
         for r in sorted(records, key=lambda x: (x.time.timestamp() if x.time else 0, x.tran_id)):
