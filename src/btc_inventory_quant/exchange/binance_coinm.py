@@ -253,12 +253,23 @@ class BinanceCoinMAdapter:
     def server_time_ms(self) -> int:
         return int(self._request("GET", "/dapi/v1/time")["serverTime"])
 
-    def sync_time(self) -> int:
-        """Measure local-vs-server offset (ms) using a round trip; returns the offset."""
-        t0 = int(time.time() * 1000)
-        server = self.server_time_ms()
-        t1 = int(time.time() * 1000)
-        self.time_offset_ms = server - (t0 + t1) // 2
+    def sync_time(self, samples: int = 3) -> int:
+        """Measure local-vs-server offset (ms); returns the offset and remembers it for signing.
+
+        Midpoint of the round trip, taken from the sample with the shortest round trip: the
+        midpoint assumes symmetric latency, and one slow leg on a just-woken Wi-Fi can add
+        hundreds of milliseconds of apparent skew (weight 1 per call; three is cheap).
+        """
+        best_rtt: int | None = None
+        best_offset = 0
+        for _ in range(max(1, samples)):
+            t0 = int(time.time() * 1000)
+            server = self.server_time_ms()
+            t1 = int(time.time() * 1000)
+            rtt = t1 - t0
+            if best_rtt is None or rtt < best_rtt:
+                best_rtt, best_offset = rtt, server - (t0 + t1) // 2
+        self.time_offset_ms = best_offset
         return self.time_offset_ms
 
     def exchange_info(self) -> dict[str, Any]:

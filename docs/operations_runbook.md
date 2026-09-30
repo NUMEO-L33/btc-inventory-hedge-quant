@@ -98,7 +98,8 @@ grep 하면 macOS 자체의 "화면 켜져 있을 때" 어서션(powerd)만 보�
 [docs/incident_2026-09-05_stream_silence.md](incident_2026-09-05_stream_silence.md).
 2주차(09-11 ~ 09-20)는 복구 경로의 버그 2건(같은 문서 §7–§9)과 페이퍼 거래소의 id 충돌로
 **SAFE_HOLD 4일**([docs/incident_2026-09-16_paper_income_ids.md](incident_2026-09-16_paper_income_ids.md)).
-관찰 시계는 복구 시점(09-20)부터 다시 센다.
+관찰 시계는 복구 시점(09-20)부터 다시 센다. 3주차(09-27~30)에 testnet 이 실계좌 경로 버그 3건을 잡았다
+(income 조회, 시계 오차 래치, listenKey 만료 — `incident_2026-09-30_testnet_clock_listenkey.md`); shadow 는 무사고.
 
 ## 3. Testnet(데모)
 

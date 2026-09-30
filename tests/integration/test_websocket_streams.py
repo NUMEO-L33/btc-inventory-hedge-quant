@@ -383,3 +383,53 @@ def test_every_connect_attempt_moves_the_activity_marker() -> None:
         )
     finally:
         stream.stop()
+
+
+class _KeyLosingProvider(_FakeProvider):
+    """The demo host on 2026-09-28: the key expired while the laptop slept, every keepalive is
+    refused with -1125, and a POST hands out a fresh key."""
+
+    def __init__(self, ws_url: str) -> None:
+        super().__init__(ws_url)
+        self.refused = 0
+
+    def keepalive_user_stream(self) -> None:
+        self.refused += 1
+        from btc_inventory_quant.exchange.base import ExchangeAPIError
+
+        raise ExchangeAPIError(-1125, "This listenKey does not exist.", 400)
+
+
+def test_a_refused_keepalive_makes_the_stream_fetch_a_new_key_instead_of_looping() -> None:
+    server = _Server([])  # silent: nothing but recv timeouts, so _periodic runs every 0.2 s
+    server.start()
+    provider = _KeyLosingProvider(server.url)
+    stream = UserDataStream(provider, recv_timeout=0.2, backoff_max=0.2, keepalive_seconds=0.3)
+    stream.start()
+    try:
+        assert _wait(lambda: provider.refused >= 1, timeout=5)
+        # the old code retried the same keepalive on every recv timeout, forever (2 days, every
+        # 5 s); the new one reconnects and asks for a key
+        assert _wait(lambda: len(provider.keys) >= 2, timeout=5), "no new key requested"
+        assert server.paths[1] == "/ws/listenkey2"
+        time.sleep(1.0)
+        assert provider.refused < 8, f"still hammering the keepalive: {provider.refused} refusals"
+    finally:
+        stream.stop()
+        server.stop()
+
+
+def test_every_connect_asks_the_exchange_for_the_listen_key() -> None:
+    """A key that expired during a sleep is only replaced if the reconnect asks for one; the
+    documented POST returns the active key (and extends it) or a new one, so asking is free."""
+    server = _Server([{"e": "unknownEvent"}], close_after=1)  # server drops each connection
+    server.start()
+    provider = _FakeProvider(server.url)
+    stream = UserDataStream(provider, recv_timeout=0.2, backoff_max=0.2)
+    stream.start()
+    try:
+        assert _wait(lambda: server.connections >= 3, timeout=10)
+        assert len(provider.keys) >= 3, "each reconnect must POST for the key, not reuse it"
+    finally:
+        stream.stop()
+        server.stop()

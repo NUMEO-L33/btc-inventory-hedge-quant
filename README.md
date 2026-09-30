@@ -3,7 +3,7 @@
 BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 규칙 기반으로 조절**하는 리서치·실행 시스템입니다.
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
-> **현재 상태(2026-09-20)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며, 2026-09-20 부터는 **Testnet(데모 계좌) 에이전트를 병행**해 실제 어댑터 경로(서명 주문·거래소 id·유저 스트림)를 돈 없이 검증합니다. 운영 관찰 목표는 복구 시점(09-20)부터 2~4주입니다.
+> **현재 상태(2026-09-30)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며, 2026-09-20 부터는 **Testnet(데모 계좌) 에이전트를 병행**해 실제 어댑터 경로(서명 주문·거래소 id·유저 스트림)를 돈 없이 검증합니다. 운영 관찰 목표는 복구 시점(09-20)부터 2~4주입니다.
 >
 > **연구 결론 — 네 라운드가 같은 답으로 수렴했습니다.**
 > * **V1**: 타이밍 알파 미확인 — [docs/strategy_spec.md](docs/strategy_spec.md) §5
@@ -47,7 +47,7 @@ brew install python@3.12                                        # 없을 때만
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
-python -m pytest -q                                             # 237 tests (unit / integration / simulation)
+python -m pytest -q                                             # 243 tests (unit / integration / simulation)
 ```
 상시 실행(macOS): `bash scripts/install_agent.sh shadow` / `bash scripts/install_agent.sh testnet` — 설정 사전 점검 후 모드별 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다(`install_shadow_agent.sh` 는 shadow 의 별칭). 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
 
@@ -130,6 +130,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * WebSocket 스트림은 **2026-09-02 실서버 연결 확인**. REST 가 항상 1차 소스이며 스트림은 보조 확인·침묵 감지용.
 * ~~절전 복구 수정(2026-09-11) 현장 검증 미완~~ → **2026-09-13 현장 검증 완료.** `scripts/test_suspend_recovery.sh` 로 shadow 프로세스를 90초 정지시킨 결과 정지 감지가 발동해 강제 재연결했고 SAFE_HOLD 는 걸리지 않았다(`docs/incident_2026-09-05_stream_silence.md` §6).
 * **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
+* Testnet 2주차(2026-09-30)에 실계좌 경로 버그 2건을 더 잡았다: 기상 직후 1.3초 시계 오차를 즉시 SAFE_HOLD 로 래치(→ 2단 가드·재시도·3슬롯 래치로), 60분 넘게 잔 뒤 만료된 listenKey 를 붙들고 5초마다 keepalive 실패를 이틀 반복(→ 연결마다 POST 로 키 요청, 거부되면 새 키). 판단 재시도 경로는 09-29/30 현장 검증됨 — [docs/incident_2026-09-30_testnet_clock_listenkey.md](docs/incident_2026-09-30_testnet_clock_listenkey.md)
 * 데모 호스트의 `GET /dapi/v1/income` 은 `incomeType` 없이 호출하면 빈 배열을 돌려준다(문서와 다름, 2026-09-27 실측). 대사 로직은 타입별로 조회하도록 바꿨고 프로덕션 동작은 UNVERIFIED — `docs/exchange_api_verification.md` §18.
 * Docker 이미지 빌드 미검증(개발 환경에 데몬 없음). `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
 * 머신러닝 없음(V1 범위 제외).

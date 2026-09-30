@@ -65,8 +65,20 @@ class Guards:
         return GuardResult(True, "CANDLES_OK")
 
     def check_clock(self, offset_ms: int) -> GuardResult:
-        if abs(offset_ms) > self.limits.max_clock_skew_ms:
+        """Local clock vs exchange clock. Two tiers, because the common case is transient.
+
+        A laptop that just woke can be a second or two off until NTP catches up (1302 ms on
+        2026-09-30, measured 3 s after the network came back), and the adapter already signs
+        requests with the measured offset applied. That deserves a blocked cycle and a retry,
+        not a kill switch someone has to release by hand. A clock off by a minute is a
+        different thing - candle boundaries and recvWindow both stop meaning anything - and
+        that latches immediately.
+        """
+        skew = abs(offset_ms)
+        if skew > self.limits.critical_clock_skew_ms:
             return GuardResult(False, "CLOCK_SKEW", f"server offset {offset_ms} ms", critical=True)
+        if skew > self.limits.max_clock_skew_ms:
+            return GuardResult(False, "CLOCK_SKEW", f"server offset {offset_ms} ms", critical=False)
         return GuardResult(True, "CLOCK_OK")
 
     # --- account state -----------------------------------------------------

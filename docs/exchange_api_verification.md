@@ -772,3 +772,8 @@ is not sent, all kinds of flow will be returned" 이므로 **문서와 다른 �
 부수: 이 계좌(0.01 BTC, 1계약)의 주간 펀딩 0.0000022 BTC 는 대사 허용오차 0.00001 BTC 보다 작아
 대사가 이 누락을 **볼 수 없었다.** 0.05 BTC 실계좌(8계약)라면 며칠 안에 잡혔을 크기다.
 
+## §19 데모 실측 (2026-09-28~30): listenKey 만료 후 `-1125`, 기상 직후 시계 오차 1302 ms
+
+* 맥북이 60분 넘게 잔 뒤 keepalive `PUT /dapi/v1/listenKey` → `-1125 This listenKey does not exist (http 400)`. 문서(§6.1)대로 60분 무 keepalive 만료가 데모에서도 그대로 적용된다. 구현은 연결마다 `POST` 로 키를 요청하도록 바꿨다 — "active listenKey 가 있으면 그 키를 돌려주고 연장한다"는 문서 문구에 근거.
+* 기상 3초 뒤 `GET /dapi/v1/time` 기준 오차 1302 ms 측정. 몇 분 뒤 정상(그날 이후 사이클 오차 수십 ms). 측정은 3회 왕복 중 최단 왕복의 중간점으로 바꿨다.
+

@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from btc_inventory_quant.exchange.base import ExchangeAPIError
 from btc_inventory_quant.exchange.models import OrderStatus, dec, dec0, ms_to_dt
 from btc_inventory_quant.monitoring.logging import get_logger
 
@@ -474,8 +475,10 @@ class UserDataStream(_BaseStream):
         **kw: Any,
     ) -> None:
         # Event driven, so silence proves nothing and a dead socket can hide indefinitely.
-        # A cheap proactive reconnect every 30 min bounds how long it can hide; the listenKey
-        # is reused, so this costs one handshake and stays far inside the connection limits.
+        # A cheap proactive reconnect every 30 min bounds how long it can hide. Every connect
+        # asks the exchange for the listenKey (POST): per the documentation that returns the
+        # active key and extends it, or a new one if the old one died - so a key that expired
+        # while the laptop slept is replaced without anyone noticing it had expired.
         kw.setdefault("max_connection_age", 1800.0)
         super().__init__("user_data", **kw)
         self.provider = provider
@@ -490,10 +493,13 @@ class UserDataStream(_BaseStream):
         self._expired = False
 
     def _url(self) -> str:
-        if self._listen_key is None or self._expired:
-            self._listen_key = self.provider.start_user_stream()
-            self._expired = False
-            self._last_keepalive = time.monotonic()
+        # Always POST. "Doing a POST on an account with an active listenKey will return the
+        # currently active listenKey and extend its validity for 60 minutes" - so this is a
+        # no-op keepalive on a healthy key and a fresh key otherwise. Reusing the cached key
+        # instead is what kept the 2026-09-28 stream on a key the host had already expired.
+        self._listen_key = self.provider.start_user_stream()
+        self._expired = False
+        self._last_keepalive = time.monotonic()
         base = self._url_override or self.provider.ws_url
         return f"{base}/ws/{self._listen_key}"
 
@@ -516,8 +522,18 @@ class UserDataStream(_BaseStream):
             try:
                 await asyncio.to_thread(self.provider.keepalive_user_stream)
                 self._last_keepalive = time.monotonic()
-            except Exception as exc:
+            except ExchangeAPIError as exc:
+                # The exchange answered and refused: the key is gone (-1125 INVALID_LISTEN_KEY
+                # after a sleep longer than its 60-minute validity, on 2026-09-28). Retrying the
+                # keepalive cannot revive it - the stream did exactly that every 5 s for two
+                # days - so reconnect, which requests a new key.
                 self._note_error(exc)
+                self._expired = True
+            except Exception as exc:
+                # The exchange did not answer (network). Keep the key, try again in a minute
+                # rather than on every recv timeout.
+                self._note_error(exc)
+                self._last_keepalive = time.monotonic() - self.keepalive_seconds + 60.0
         if self._expired:
             raise ConnectionResetError("listenKey expired; reconnecting with a new key")
 

@@ -115,7 +115,12 @@ class RiskLimits(StrictModel):
     stale_price_max_age_seconds: int = Field(120, ge=1)
     stale_mark_max_age_seconds: int = Field(120, ge=1)
     max_consecutive_order_rejects: int = Field(3, ge=1)
-    max_clock_skew_ms: int = Field(1000, ge=1)
+    max_clock_skew_ms: int = Field(1000, ge=1)  # above this a cycle is blocked (retried later)
+    # above this the clock is not drifting, it is wrong: SAFE_HOLD at once. Between the two,
+    # a laptop clock that has not re-synced after a wake blocks the cycle and is retried; it
+    # only latches after clock_skew_cycles_to_safe_hold consecutive decision slots.
+    critical_clock_skew_ms: int = Field(60_000, ge=1)
+    clock_skew_cycles_to_safe_hold: int = Field(3, ge=1)
     min_margin_ratio_buffer: Decimal = Field(
         Decimal("0.25"), ge=0
     )  # SAFE_HOLD if maint-margin/equity > buffer
@@ -132,6 +137,8 @@ class RiskLimits(StrictModel):
             raise ValueError("min_hedge_ratio must be <= max_hedge_ratio")
         if self.min_rebalance_diff > self.max_daily_hedge_change:
             raise ValueError("min_rebalance_diff must be <= max_daily_hedge_change")
+        if self.critical_clock_skew_ms < self.max_clock_skew_ms:
+            raise ValueError("critical_clock_skew_ms must be >= max_clock_skew_ms")
         return self
 
 

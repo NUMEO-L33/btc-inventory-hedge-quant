@@ -71,6 +71,10 @@ STATE_LAST_FUNDING_SETTLE_MS = "last_paper_funding_settle_ms"
 STATE_PREV_EQUITY = "prev_cycle_equity"
 STATE_PAPER_ACCOUNT = "paper_account"
 STATE_STALE_CYCLES = "stale_data_cycles"
+STATE_CLOCK_SKEW_CYCLES = "clock_skew_cycles"
+# Soft guard failures that the next few minutes may fix; a decision blocked only by these is
+# retried within the day (see Trader.retryable) and latches only after several bad slots.
+TRANSIENT_BLOCK_CODES = frozenset({"WS_SILENT", "CLOCK_SKEW"})
 # Awake time an alive stream may go without a single connect attempt or message before the
 # supervisor concludes its loop is stuck. A healthy loop attempts at least every ~76 s: 30 s
 # backoff + 10 s open timeout when the network is down, 60 s silence + 5 s recv timeout + the
@@ -247,7 +251,15 @@ class Trader:
     def _cycle(self, now: datetime) -> CycleResult:
         assert self.portfolio is not None
         offset = self._sync_time()
-        guard_results: list[GuardResult] = [self.guards.check_clock(offset)]
+        clock_guard = self.guards.check_clock(offset)
+        guard_results: list[GuardResult] = [clock_guard]
+        if not clock_guard.critical and self._track_clock_skew(clock_guard, now):
+            return CycleResult(
+                now,
+                "safe_hold",
+                guard_failures=[clock_guard],
+                message="clock skew persisted across cycles",
+            )
         mark_info = self._mark_price()
         guard_results.append(self.guards.check_mark_freshness(mark_info, now))
         mark = mark_info.mark_price
@@ -614,19 +626,54 @@ class Trader:
         and the streams recover on their own. The count lives in the database so that a restart
         cannot quietly reset it and hide a condition that has been failing for days.
         """
-        state = self.db.get_state(STATE_STALE_CYCLES) or {}
+        return self._track_transient_block(
+            guard,
+            now,
+            state_key=STATE_STALE_CYCLES,
+            limit=self.config.risk.stale_data_cycles_to_safe_hold,
+            what="stale market data",
+            event="stale_data_blocked",
+        )
+
+    def _track_clock_skew(self, guard: GuardResult, now: datetime) -> bool:
+        """Same rule for a clock that is off by more than the limit but not absurdly so."""
+        return self._track_transient_block(
+            guard,
+            now,
+            state_key=STATE_CLOCK_SKEW_CYCLES,
+            limit=self.config.risk.clock_skew_cycles_to_safe_hold,
+            what="clock skew",
+            event="clock_skew_blocked",
+        )
+
+    def _track_transient_block(
+        self,
+        guard: GuardResult,
+        now: datetime,
+        *,
+        state_key: str,
+        limit: int,
+        what: str,
+        event: str,
+    ) -> bool:
+        """Block now, alert once per decision slot, latch after ``limit`` consecutive slots.
+
+        The distinction this encodes: a condition that fixes itself within minutes (a
+        suspended laptop, a clock that has not re-synced yet) must not cost a human a release,
+        but one that is still there on the third day is not transient and must.
+        """
+        state = self.db.get_state(state_key) or {}
         if guard.ok:
             if int(state.get("count", 0)):
-                self.db.set_state(STATE_STALE_CYCLES, {"count": 0})
-                log.info("stale data cleared; streams are live again")
+                self.db.set_state(state_key, {"count": 0})
+                log.info(f"{what} cleared")
             return False
-        limit = self.config.risk.stale_data_cycles_to_safe_hold
         slot = self.decision_slot(now).isoformat()
         if state.get("slot") == slot:
             # a retry of the same decision: still blocked, but the same bad day as before, and
             # the operator has already been told about it once
             log.warning(
-                "stale market data; still blocked on retry",
+                f"{what}; still blocked on retry",
                 fields={
                     "cycle": int(state.get("count", 0)),
                     "limit": limit,
@@ -635,21 +682,19 @@ class Trader:
             )
             return False
         count = int(state.get("count", 0)) + 1
-        self.db.set_state(
-            STATE_STALE_CYCLES, {"count": count, "last": now.isoformat(), "slot": slot}
-        )
+        self.db.set_state(state_key, {"count": count, "last": now.isoformat(), "slot": slot})
         if count >= limit:
             self._engage(
-                "stale market data persisted",
+                f"{what} persisted",
                 {"cycles": count, "guard": f"{guard.code}: {guard.message}"},
             )
             return True
         log.warning(
-            "stale market data; trading blocked this cycle",
+            f"{what}; trading blocked this cycle",
             fields={"cycle": count, "limit": limit, "guard": guard.message},
         )
         self.alerter.notify(
-            "stale_data_blocked",
+            event,
             f"trading blocked: {guard.message} ({count}/{limit} cycles before SAFE_HOLD)",
             level="WARNING",
         )
@@ -921,9 +966,10 @@ class Trader:
         """A decision that failed for a reason the next few minutes may fix.
 
         ``error`` is the exchange being unreachable: nothing was decided or recorded. A
-        ``blocked`` decision is retried only when stale stream data was the sole reason; the
-        other soft guards (margin type, leverage setting) describe the account, and a retry
-        would just log the same blocked intent every few minutes until someone changes it.
+        ``blocked`` decision is retried only when the reasons were all transient (stale stream
+        data, a clock that has not re-synced after a wake); the other soft guards (margin type,
+        leverage setting) describe the account, and a retry would just log the same blocked
+        intent every few minutes until someone changes it.
         The cycle is idempotent per candle, so retrying a decision that did go through is a
         no-op.
         """
@@ -932,7 +978,7 @@ class Trader:
         return (
             res.action == "blocked"
             and bool(res.guard_failures)
-            and all(g.code == "WS_SILENT" for g in res.guard_failures)
+            and all(g.code in TRANSIENT_BLOCK_CODES for g in res.guard_failures)
         )
 
     def run(self, once: bool = False, max_cycles: int | None = None) -> int:

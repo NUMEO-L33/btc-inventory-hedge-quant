@@ -187,6 +187,19 @@ DNS 가 실패하고(`gaierror: nodename nor servname provided`) 스트림은 �
 내일까지 대기, 한 정전의 재시도 3번 = 알림 1건·실패 1회, 사흘 연속은 여전히 래치, 재시도 대상
 분류, 스테일 → 스트림 자체 복구 → 재시도 성공(재시작 0·알림 1건).
 
-정직하게 적어 두면: 이것은 사건이 아니라 코드 읽기에서 나온 수정이다. 사건이 나기 전에 고쳤다는
-뜻이지, 현장에서 검증됐다는 뜻은 아니다. 다음에 판단 시각에 덮개가 닫혀 있는 날의 로그에서
-`decision will be retried` → `cycle done` 순서를 확인하면 그때 검증된다.
+~~정직하게 적어 두면: 이것은 사건이 아니라 코드 읽기에서 나온 수정이다. 현장에서 검증됐다는 뜻은
+아니다.~~ → **현장 검증 완료 (2026-09-29, 09-30).** 이틀 연속 판단 시각에 맥북이 절전 중이었고,
+깨어난 직후 두 에이전트 모두 `GET …: ConnectError` 로 실패했다. 로그 순서 그대로:
+
+```
+09-29 00:42:10  ALERT exchange_unavailable (슬롯당 1건)
+09-29 00:42:10  decision will be retried  at 00:52:10
+09-29 00:53:04  cycle done  action=none            ← testnet · shadow 는 00:53:27
+09-30 00:05:51  ALERT exchange_unavailable
+09-30 00:34:08  exchange still unavailable on retry  bad_slots=1   ← 알림 없음, 카운터 그대로
+09-30 00:44:18  cycle done  action=none            ← shadow
+```
+
+재시도가 없었다면 이틀치 판단이 사라지고 접속 실패 카운터가 2 가 됐을 것이다. 09-30 의 testnet
+재시도는 판단 대신 시계 오차 가드에 걸렸는데, 그건 다음 인시던트 문서의 몫이다
+([incident_2026-09-30_testnet_clock_listenkey.md](incident_2026-09-30_testnet_clock_listenkey.md)).
