@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from btc_inventory_quant.domain.ledger import LedgerEntry
+from btc_inventory_quant.domain.ledger import WALLET_AFFECTING_TYPES, LedgerEntry, LedgerEntryType
 from btc_inventory_quant.storage.models import (
     AppState,
     Base,
@@ -147,6 +147,33 @@ class Database:
             if since is not None:
                 stmt = stmt.where(LedgerRecord.ts >= since)
             return list(s.scalars(stmt))
+
+    def ledger_wallet_balance(self) -> tuple[Decimal, int] | None:
+        """The wallet balance the ledger accounts for, and how many entries make it up.
+
+        Summed from the most recent OPENING_BALANCE onwards: re-adopting a portfolio from the
+        exchange (the runbook's recovery procedure) books a fresh opening balance, and summing
+        across it would count the capital twice. ``None`` when there is no opening balance to
+        start from - then the ledger cannot vouch for any wallet value.
+        """
+        with self.session() as s:
+            start = s.scalar(
+                select(LedgerRecord.id)
+                .where(LedgerRecord.entry_type == LedgerEntryType.OPENING_BALANCE.value)
+                .order_by(LedgerRecord.id.desc())
+                .limit(1)
+            )
+            if start is None:
+                return None
+            kinds = sorted(t.value for t in WALLET_AFFECTING_TYPES)
+            amounts = list(
+                s.scalars(
+                    select(LedgerRecord.amount_btc).where(
+                        LedgerRecord.id >= start, LedgerRecord.entry_type.in_(kinds)
+                    )
+                )
+            )
+        return sum((Decimal(str(a)) for a in amounts), Decimal(0)), len(amounts)
 
     def ledger_has_ref(self, ref_id: str, entry_type: str) -> bool:
         with self.session() as s:

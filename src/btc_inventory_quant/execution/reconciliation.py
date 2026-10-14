@@ -264,9 +264,12 @@ class Reconciler:
             entry = LedgerEntry(
                 ts, entry_type, r.amount, ref_id=ref, note=f"{r.income_type} {r.info}".strip()
             )
+            # Durable record first, then the in-memory wallet: if the write fails, nothing has
+            # moved, and the next sync finds the record unmirrored and tries again. The other
+            # order could leave a wallet that has counted money the ledger never recorded.
+            self.db.add_ledger_entry(entry)
             portfolio.wallet_balance_btc += r.amount
             portfolio.ledger.append(entry)
-            self.db.add_ledger_entry(entry)
             applied += 1
         return {
             "applied": applied,

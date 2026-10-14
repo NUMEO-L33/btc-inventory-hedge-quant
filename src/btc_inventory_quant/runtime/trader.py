@@ -72,6 +72,9 @@ STATE_PREV_EQUITY = "prev_cycle_equity"
 STATE_PAPER_ACCOUNT = "paper_account"
 STATE_STALE_CYCLES = "stale_data_cycles"
 STATE_CLOCK_SKEW_CYCLES = "clock_skew_cycles"
+# Saved wallet vs ledger sum. Both are exact Decimal sums of the same amounts; anything above
+# arithmetic noise (2e-27 observed after three weeks) is a missing or extra row, not rounding.
+LEDGER_WALLET_TOLERANCE_BTC = Decimal("1e-12")
 # Soft guard failures that the next few minutes may fix; a decision blocked only by these is
 # retried within the day (see Trader.retryable) and latches only after several bad slots.
 TRANSIENT_BLOCK_CODES = frozenset({"WS_SILENT", "CLOCK_SKEW"})
@@ -142,6 +145,7 @@ class Trader:
         self.consecutive_data_errors = 0
         self._last_data_error_slot: datetime | None = None
         self._last_stream_restart: datetime | None = None
+        self._ledger_repair: dict[str, Any] | None = None
         # stream stall tracking: what the streams had done when we last looked, how long (awake)
         # that has stayed the same, and when we last looked
         self._stall_marker: Any = None
@@ -172,6 +176,8 @@ class Trader:
             self._engage("unresolved or unknown orders at startup", recovery)
         self._restore_simulated_account()
         self.portfolio = self._load_portfolio(now)
+        if self._ledger_repair is not None:
+            report["ledger_repair"] = self._ledger_repair
         snap = self.reconciler.snapshot()
         mark = self._mark_price().mark_price
         if self.db.get_state(STATE_PORTFOLIO) is None:
@@ -182,6 +188,7 @@ class Trader:
             self.reconciler.sync_income(
                 self.portfolio, self.db.get_state(STATE_LAST_INCOME_SYNC_MS)
             )
+            self._save_portfolio()  # see _cycle: mirrored income must not outlive the process
             rec = self.reconciler.compare(
                 self.portfolio, snap, self.order_manager.known_client_ids(), mark
             )
@@ -291,6 +298,11 @@ class Trader:
             self.portfolio, self.db.get_state(STATE_LAST_INCOME_SYNC_MS)
         )
         self.db.set_state(STATE_LAST_INCOME_SYNC_MS, int(now.timestamp() * 1000) - 3_600_000)
+        # Persist now, not only at the end of a successful cycle. The ledger rows above are
+        # already durable and are what the next sync dedupes against; a cycle that returns
+        # early from here on (SAFE_HOLD, a skipped decision) used to leave the saved wallet
+        # behind them, and a restart then made the gap permanent (testnet, 2026-09-30).
+        self._save_portfolio()
         guard_results.append(
             self.guards.check_unexpected_transfers(Decimal(income["unexpected_amount_btc"]))
         )
@@ -789,9 +801,12 @@ class Trader:
 
     def _load_portfolio(self, now: datetime) -> Portfolio:
         saved = self.db.get_state(STATE_PORTFOLIO)
+        wallet = Decimal(str(saved["wallet_balance_btc"])) if saved else ZERO
+        if saved:
+            wallet = self._wallet_from_ledger(wallet)
         pf = Portfolio.open(
             self.spec,
-            Decimal(str(saved["wallet_balance_btc"])) if saved else ZERO,
+            wallet,
             now if not saved else datetime.fromisoformat(saved["opened_at"]),
         )
         if saved:
@@ -800,6 +815,41 @@ class Trader:
             if contracts < ZERO and entry:
                 pf.position.apply_fill(OrderSide.SELL, -contracts, Decimal(str(entry)), ZERO)
         return pf
+
+    def _wallet_from_ledger(self, saved_wallet: Decimal) -> Decimal:
+        """The wallet to start from: the ledger's, when the saved value has fallen out of step.
+
+        The saved wallet is a cache. The ledger is the record - one row per exchange event,
+        deduplicated by the exchange's own id - and income sync trusts it to say what has
+        already been counted. When the two disagree at startup, the cache is the stale one:
+        a process that stopped between mirroring income and saving (testnet, 2026-09-30:
+        0.00000033 BTC of funding in the ledger, absent from the wallet, invisible to the
+        reconciler's tolerance). Rebuild it, and say so; the reconciliation that follows
+        still judges the result against the exchange.
+        """
+        self._ledger_repair = None
+        derived = self.db.ledger_wallet_balance()
+        if derived is None:
+            return saved_wallet
+        ledger_wallet, n_entries = derived
+        diff = ledger_wallet - saved_wallet
+        if abs(diff) <= LEDGER_WALLET_TOLERANCE_BTC:
+            return saved_wallet
+        self._ledger_repair = {
+            "saved_wallet_btc": str(saved_wallet),
+            "ledger_wallet_btc": str(ledger_wallet),
+            "difference_btc": str(diff),
+            "ledger_entries": n_entries,
+        }
+        log.warning("portfolio wallet rebuilt from the ledger", fields=self._ledger_repair)
+        self.alerter.notify(
+            "ledger_wallet_repaired",
+            f"saved wallet {saved_wallet} rebuilt from the ledger: {ledger_wallet} "
+            f"(difference {diff} BTC)",
+            level="WARNING",
+            payload=self._ledger_repair,
+        )
+        return ledger_wallet
 
     def _save_portfolio(self) -> None:
         assert self.portfolio is not None
