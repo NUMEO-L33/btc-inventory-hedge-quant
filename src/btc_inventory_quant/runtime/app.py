@@ -241,6 +241,32 @@ def gather_live_evidence(c: Components) -> RuntimeEvidence:
     )
 
 
+def build_clock_reference(config: AppConfig, exchange: ExchangeAdapter) -> Any | None:
+    """Production Binance time, for a trader whose exchange is not production Binance.
+
+    The clock guard asks whether OUR clock is right. Live trades on production, which is
+    therefore its own reference (None). Shadow's paper account has no clock at all, and the demo
+    host behind testnet has read ~2 s off at 00:05 UTC on days the Mac was awake; both judge
+    against production's public /time instead (no credentials). Replay/backtest: no wall clock.
+    """
+    if isinstance(exchange, PaperExchange):
+        market = exchange.market
+        if isinstance(market, BinanceCoinMAdapter) and market.environment == "production":
+            return market  # shadow: the public production adapter it already reads prices from
+        return None
+    if isinstance(exchange, BinanceCoinMAdapter) and exchange.environment != "production":
+        ex = config.exchange
+        return BinanceCoinMAdapter(  # a second opinion: fail fast, the guard falls back
+            environment="production",
+            recv_window_ms=ex.recv_window_ms,
+            timeout_seconds=min(ex.request_timeout_seconds, 5.0),
+            max_retries=1,
+            backoff_base_seconds=ex.backoff_base_seconds,
+            backoff_max_seconds=ex.backoff_max_seconds,
+        )
+    return None
+
+
 def build_trader(c: Components, mode: RunMode, confirm_live: bool = False) -> Trader:
     strategy = build_strategy(c.config.strategy)
     orders_allowed = mode in (RunMode.SHADOW, RunMode.TESTNET)
@@ -279,6 +305,7 @@ def build_trader(c: Components, mode: RunMode, confirm_live: bool = False) -> Tr
         c.metrics,
         orders_allowed=orders_allowed,
         streams=c.streams,
+        clock_reference=build_clock_reference(c.config, c.exchange),
     )
 
 

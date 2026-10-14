@@ -437,3 +437,26 @@ def test_public_endpoints_work_without_credentials() -> None:
     info = a.premium_index("BTCUSD_PERP")
     assert info.mark_price == Decimal("77582.4")
     assert info.last_funding_rate == Decimal("0.00009882")
+
+
+def test_sync_time_keeps_the_shortest_round_trip_and_reports_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Best-of-3 by round trip, and the round trip is kept so each cycle can log how good the
+    measurement was (a 2 s offset over a 40 ms round trip is not a measurement artefact)."""
+    import types
+
+    from btc_inventory_quant.exchange import binance_coinm
+
+    local = iter([1.000, 1.300, 2.000, 2.040, 3.000, 3.200])  # (t0, t1) per sample, seconds
+    server = iter([3100, 2060, 5200])  # serverTime per sample, ms
+    monkeypatch.setattr(
+        binance_coinm, "time", types.SimpleNamespace(time=lambda: next(local), sleep=lambda s: None)
+    )
+    a = _adapter(lambda r: httpx.Response(200, json={"serverTime": next(server)}))
+
+    offset = a.sync_time()
+
+    assert offset == 40  # sample 2: 2060 - (2000 + 2040) / 2; the others were slower
+    assert a.time_offset_ms == 40
+    assert a.time_sync_rtt_ms == 40

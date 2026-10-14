@@ -111,6 +111,7 @@ class BinanceCoinMAdapter:
             timeout=timeout_seconds, headers={"User-Agent": "btc-inventory-quant/0.1"}
         )
         self.time_offset_ms = 0
+        self.time_sync_rtt_ms: int | None = None  # round trip of the sample behind time_offset_ms
         self.last_used_weight: int | None = None
         self.last_order_count: int | None = None
         self.error_count = 0
@@ -270,6 +271,7 @@ class BinanceCoinMAdapter:
             if best_rtt is None or rtt < best_rtt:
                 best_rtt, best_offset = rtt, server - (t0 + t1) // 2
         self.time_offset_ms = best_offset
+        self.time_sync_rtt_ms = best_rtt
         return self.time_offset_ms
 
     def exchange_info(self) -> dict[str, Any]:

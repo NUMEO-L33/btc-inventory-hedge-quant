@@ -88,6 +88,7 @@ class Harness:
         streams: Any = None,
         clock: Any = None,
         sleep: Any = None,
+        clock_reference: Any = None,
     ) -> Trader:
         alerter = Alerter([LogChannel()], async_send=False)
         ks = KillSwitch(self.db, alerter)
@@ -121,6 +122,7 @@ class Harness:
             clock=clock or (lambda: self.market.now),
             sleep=sleep or (lambda s: None),
             streams=streams,
+            clock_reference=clock_reference,
         )
         self.trader = trader
         self.alerter = alerter

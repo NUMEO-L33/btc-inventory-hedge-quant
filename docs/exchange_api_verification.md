@@ -777,3 +777,12 @@ is not sent, all kinds of flow will be returned" 이므로 **문서와 다른 �
 * 맥북이 60분 넘게 잔 뒤 keepalive `PUT /dapi/v1/listenKey` → `-1125 This listenKey does not exist (http 400)`. 문서(§6.1)대로 60분 무 keepalive 만료가 데모에서도 그대로 적용된다. 구현은 연결마다 `POST` 로 키를 요청하도록 바꿨다 — "active listenKey 가 있으면 그 키를 돌려주고 연장한다"는 문서 문구에 근거.
 * 기상 3초 뒤 `GET /dapi/v1/time` 기준 오차 1302 ms 측정. 몇 분 뒤 정상(그날 이후 사이클 오차 수십 ms). 측정은 3회 왕복 중 최단 왕복의 중간점으로 바꿨다.
 
+## §20 데모 관찰 (2026-10-04/12/14): 00:05 UTC 에 `/time` 기준 오차 +2.03~2.07 초 — 원인 UNVERIFIED
+
+* 정시 판단(00:05:00) 13일 중 3일, 깨어 있는 맥북에서 측정. 최단 왕복 ≤ 90 ms 라 비대칭 지연으로는
+  설명되지 않는다. 다른 시각(재시작 6회)은 7~88 ms.
+* 데모 호스트 시계인지 맥북 시계인지 **UNVERIFIED**. 공식 문서에 데모 호스트 시계에 관한 언급은 없다.
+* 대응: 시계 가드는 프로덕션 공개 `/time` 기준으로 판정하고(testnet·shadow; live 는 원래 프로덕션),
+  두 오프셋을 매 사이클 `clock check` 로그에 남긴다. 서명은 데모 오프셋 보정 그대로.
+  원인이 확인되면 이 절을 갱신한다 — 인시던트 문서 `incident_2026-09-30_testnet_clock_listenkey.md` §8.
+

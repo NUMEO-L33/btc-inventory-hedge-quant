@@ -65,7 +65,9 @@ class Guards:
         return GuardResult(True, "CANDLES_OK")
 
     def check_clock(self, offset_ms: int) -> GuardResult:
-        """Local clock vs exchange clock. Two tiers, because the common case is transient.
+        """Local clock vs authoritative time - production Binance when the trader has a
+        reference clock (shadow, testnet), else the exchange itself (live). Two tiers, because
+        the common case is transient.
 
         A laptop that just woke can be a second or two off until NTP catches up (1302 ms on
         2026-09-30, measured 3 s after the network came back), and the adapter already signs

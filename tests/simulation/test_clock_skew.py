@@ -17,6 +17,7 @@ from typing import Any
 
 from btc_inventory_quant.config.schema import RiskLimits
 from btc_inventory_quant.domain.inverse_contract import ContractSpec
+from btc_inventory_quant.exchange.base import ExchangeUnavailable
 from btc_inventory_quant.exchange.paper import PaperExchange
 from btc_inventory_quant.risk.guards import Guards
 from tests.conftest import FIXTURES
@@ -100,3 +101,87 @@ def test_a_clock_off_by_a_minute_latches_at_once(tmp_path: Path) -> None:
 
     assert res.action == "safe_hold"
     assert h.ks.engaged
+
+
+# ------------------------------------------------------------- judged against production time
+class ReferenceClock:
+    """Production Binance's /time as measured from our clock: the guard's second opinion."""
+
+    def __init__(self, offset_ms: int = 0, fail: bool = False) -> None:
+        self.offset_ms = offset_ms
+        self.fail = fail
+        self.calls = 0
+        self.time_sync_rtt_ms = 41
+
+    def sync_time(self) -> int:
+        self.calls += 1
+        if self.fail:
+            raise ExchangeUnavailable("production /time unreachable")
+        return self.offset_ms
+
+
+def _skew_alerts(h: Harness) -> list[Any]:
+    return [a for a in h.alerter.sent if a.event_type == "clock_skew_blocked"]
+
+
+def test_a_demo_host_ahead_of_production_does_not_block(tmp_path: Path) -> None:
+    """2026-10-04, 10-12, 10-14 at 00:05:00 UTC: the demo host's /time read 2.03-2.07 s ahead
+    while the Mac had been awake all night. Signing already follows the demo host's offset;
+    whether OUR clock is right is a question for production time, and it said 12 ms."""
+    h = _harness(tmp_path, offset_ms=2048)  # the demo host, verbatim from 10-14
+    reference = ReferenceClock(offset_ms=12)
+    trader = h.build_trader(clock_reference=reference)
+    report = trader.start()
+
+    results = h.run_days(WARMUP + 1, 3)  # three days in a row: the case that would latch
+
+    assert report["clock_offset_ms"] == 2048 and report["reference_clock_offset_ms"] == 12
+    assert reference.calls >= 4, "the reference is asked at start and on every cycle"
+    assert not any(g.code == "CLOCK_SKEW" for r in results for g in r.guard_failures)
+    assert not _skew_alerts(h)
+    assert not h.ks.engaged
+
+
+def test_a_local_clock_that_is_really_off_is_still_caught(tmp_path: Path) -> None:
+    """If the Mac is the one that moved, both hosts see it - and the guard must too."""
+    h = _harness(tmp_path, offset_ms=2048)
+    trader = h.build_trader(clock_reference=ReferenceClock(offset_ms=2051))
+    trader.start()
+
+    res = trader.cycle()
+
+    assert any(g.code == "CLOCK_SKEW" and "2051" in g.message for g in res.guard_failures)
+    assert len(_skew_alerts(h)) == 1
+    assert not h.ks.engaged, "still the two-tier rule: block now, latch only if it persists"
+
+
+def test_shadow_gets_a_clock_to_judge(tmp_path: Path) -> None:
+    """The paper account has no clock (offset always 0), so shadow never exercised this guard;
+    live will. With production time as the reference, shadow sees what live would see."""
+    h = Harness(tmp_path)  # plain PaperExchange: no sync_time at all
+    h.market.cursor = WARMUP + 1
+    trader = h.build_trader(clock_reference=ReferenceClock(offset_ms=-1302))
+    trader.start()
+
+    res = trader.cycle()
+
+    assert any(g.code == "CLOCK_SKEW" for g in res.guard_failures)
+    assert not h.ks.engaged
+
+
+def test_an_unreachable_reference_falls_back_to_the_exchange(tmp_path: Path) -> None:
+    """A second opinion must never become a new way to fail: no reference, old behaviour."""
+    h = _harness(tmp_path, offset_ms=2048)
+    trader = h.build_trader(clock_reference=ReferenceClock(fail=True))
+    report = trader.start()
+
+    blocked = trader.cycle()
+    h.market.advance()
+    h.exchange.offset_ms = 12
+    fine = trader.cycle()
+
+    assert report["reference_clock_offset_ms"] is None
+    assert any(g.code == "CLOCK_SKEW" for g in blocked.guard_failures), "judged by the exchange"
+    assert fine.action != "safe_hold"
+    assert not any(g.code == "CLOCK_SKEW" for g in fine.guard_failures)
+    assert not h.ks.engaged

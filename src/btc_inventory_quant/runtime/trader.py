@@ -122,9 +122,13 @@ class Trader:
         clock: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         streams: StreamBundle | None = None,
+        clock_reference: Any | None = None,
     ) -> None:
         self.config = config
         self.streams = streams if (streams is not None and streams.enabled) else None
+        # Authoritative time for the clock guard when the exchange we trade on is not (paper,
+        # demo); anything with sync_time() -> offset ms. None: judge by the exchange itself.
+        self.clock_reference = clock_reference
         self.exchange = exchange
         self.db = db
         self.spec = spec
@@ -164,6 +168,8 @@ class Trader:
         self.exchange.ping()
         offset = self._sync_time()
         report["clock_offset_ms"] = offset
+        if self.clock_reference is not None:
+            report["reference_clock_offset_ms"] = self._reference_offset()
         live_spec = self.exchange.contract_spec(self.symbol)
         spec_check = self.guards.check_contract_spec(live_spec)
         report["contract_spec"] = spec_check.code
@@ -258,7 +264,7 @@ class Trader:
     def _cycle(self, now: datetime) -> CycleResult:
         assert self.portfolio is not None
         offset = self._sync_time()
-        clock_guard = self.guards.check_clock(offset)
+        clock_guard = self.guards.check_clock(self._clock_offset_for_guard(offset))
         guard_results: list[GuardResult] = [clock_guard]
         if not clock_guard.critical and self._track_clock_skew(clock_guard, now):
             return CycleResult(
@@ -599,6 +605,53 @@ class Trader:
         if callable(sync):
             return int(sync())
         return 0
+
+    def _reference_offset(self) -> int | None:
+        """Our clock against the reference clock, in ms; None without one or if unreachable."""
+        if self.clock_reference is None:
+            return None
+        try:
+            return int(self.clock_reference.sync_time())
+        except Exception as exc:  # a second opinion must never become a new way to fail
+            log.warning(
+                "reference clock unavailable; judging the clock by the exchange",
+                fields={"error": repr(exc)},
+            )
+            return None
+
+    def _clock_offset_for_guard(self, exchange_offset: int) -> int:
+        """How far OUR clock is from authoritative time - the question the clock guard asks.
+
+        The offset to the exchange we talk to is what signing needs, and the adapter already
+        applies it. Whether our own clock is wrong is a different question, and on the demo
+        host the two answers can part: on 2026-10-04, 10-12 and 10-14 the demo's /time read
+        2.03-2.07 s ahead at 00:05:00 UTC, with the Mac awake through the hour before and three
+        round trips finished within 0.3 s, while every startup measurement was 7-88 ms. Whether
+        the demo host or the Mac moved is not known yet. When a reference is configured
+        (production Binance, for modes that do not trade on it) the guard judges against it;
+        without one, or when it cannot be reached, against the exchange as before. Both
+        offsets are logged every cycle, so the next disagreement says which side moved.
+        """
+        fields: dict[str, Any] = {
+            "exchange_offset_ms": exchange_offset,
+            "exchange_rtt_ms": getattr(self.exchange, "time_sync_rtt_ms", None),
+        }
+        reference_offset = self._reference_offset()
+        if reference_offset is None:
+            log.info("clock check", fields=fields)
+            return exchange_offset
+        fields["reference_offset_ms"] = reference_offset
+        fields["reference_rtt_ms"] = getattr(self.clock_reference, "time_sync_rtt_ms", None)
+        exchange_has_clock = callable(getattr(self.exchange, "sync_time", None))  # paper: no
+        gap = abs(exchange_offset - reference_offset)
+        if exchange_has_clock and gap > self.config.risk.max_clock_skew_ms:
+            log.warning(
+                "exchange clock disagrees with the reference; judging by the reference",
+                fields=fields,
+            )
+        else:
+            log.info("clock check", fields=fields)
+        return reference_offset
 
     def _commission_report(self) -> dict[str, Any]:
         """Live fee rates vs the ones the backtest assumed.
