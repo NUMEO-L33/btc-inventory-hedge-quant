@@ -411,6 +411,9 @@ def test_a_refused_keepalive_makes_the_stream_fetch_a_new_key_instead_of_looping
         # the old code retried the same keepalive on every recv timeout, forever (2 days, every
         # 5 s); the new one reconnects and asks for a key
         assert _wait(lambda: len(provider.keys) >= 2, timeout=5), "no new key requested"
+        # The key is POSTed before the socket opens, so the server records the reconnect a
+        # handshake later; reading paths[1] straight away raced it (failed once on 2026-10-29).
+        assert _wait(lambda: len(server.paths) >= 2, timeout=5), "no reconnect with the new key"
         assert server.paths[1] == "/ws/listenkey2"
         time.sleep(1.0)
         assert provider.refused < 8, f"still hammering the keepalive: {provider.refused} refusals"
