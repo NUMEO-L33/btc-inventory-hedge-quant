@@ -9,12 +9,14 @@ import pytest
 import yaml
 
 from btc_inventory_quant.cli.main import main
+from tests.conftest import raw_snapshot_present
 
 ROOT = Path(__file__).parents[2]
 RAW = ROOT / "data" / "raw"
 AS_OF = "2026-09-02T05:10:00"
 pytestmark = pytest.mark.skipif(
-    not (RAW / "manifest.json").exists(), reason="raw snapshot not present"
+    not raw_snapshot_present(RAW),
+    reason="raw market data not present (public copy ships manifests only)",
 )
 
 

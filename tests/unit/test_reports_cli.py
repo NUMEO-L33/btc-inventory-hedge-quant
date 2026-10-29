@@ -13,6 +13,7 @@ from btc_inventory_quant.config.schema import FixedHedgeParams, RegimeHedgeParam
 from btc_inventory_quant.monitoring.logging import mask_mapping, mask_text
 from btc_inventory_quant.strategy.benchmarks import FixedHedgeStrategy, HodlStrategy
 from btc_inventory_quant.strategy.regime_hedge import RegimeHedgeV1
+from tests.conftest import raw_snapshot_present
 from tests.helpers import make_dataset, synthetic_prices
 from tests.unit.test_backtest_engine import _engine
 
@@ -124,8 +125,8 @@ def test_cli_options_accepted_before_and_after_subcommand() -> None:
 
 def test_cli_data_verify_on_real_snapshot() -> None:
     raw = Path(__file__).parents[2] / "data" / "raw"
-    if not (raw / "manifest.json").exists():
-        pytest.skip("raw snapshot not present")
+    if not raw_snapshot_present(raw):
+        pytest.skip("raw market data not present (public copy ships manifests only)")
     assert main(["data", "--raw-dir", str(raw), "verify"]) == 0
     assert main(["data", "verify", "--raw-dir", str(raw)]) == 0
 

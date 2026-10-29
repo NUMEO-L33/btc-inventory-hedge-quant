@@ -3,7 +3,7 @@
 BTC 를 장기 보유하면서 **BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 규칙 기반으로 조절**하는 리서치·실행 시스템입니다.
 성과는 항상 **BTC 수량**과 **USD 가치·최대 낙폭**을 동시에 평가하며, BTC 만 늘고 USD 가 무너지는 결과는 성공으로 보지 않습니다.
 
-> **현재 상태(2026-10-14)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며, 2026-09-20 부터는 **Testnet(데모 계좌) 에이전트를 병행**해 실제 어댑터 경로(서명 주문·거래소 id·유저 스트림)를 돈 없이 검증합니다. 운영 관찰 목표는 복구 시점(09-20)부터 2~4주입니다.
+> **현재 상태(2026-10-29)**: 구현 완료(백테스트·Shadow·주문 관리·장애 복구·Live 게이트). 실거래는 **기본 비활성화**이며 다중 게이트를 모두 통과해야만 주문이 나갑니다. **Shadow 모드가 2026-09-11 부터 맥북 launchd 에이전트로 무인 가동 중**(고정 헤지 20%, 페이퍼 계좌)이며, 2026-09-20 부터는 **Testnet(데모 계좌) 에이전트를 병행**해 실제 어댑터 경로(서명 주문·거래소 id·유저 스트림)를 돈 없이 검증합니다. 복구 시점(09-20)부터 **4주 관찰(→ 10-18)을 마쳤습니다** — 그동안 shadow 는 SAFE_HOLD 0회, testnet 은 09-30 에 1회(시계 가드가 회복 가능한 조건을 래치 → 수정), 매일 판단·대사 정상.
 >
 > **연구 결론 — 네 라운드가 같은 답으로 수렴했습니다.**
 > * **V1**: 타이밍 알파 미확인 — [docs/strategy_spec.md](docs/strategy_spec.md) §5
@@ -65,9 +65,12 @@ python -m pytest -q
 ## 3. 백테스트 실행
 
 ```bash
-python -m btc_inventory_quant data verify                       # 원본 데이터 SHA-256 검증
+python -m btc_inventory_quant data --raw-dir data/raw download  # 원본 데이터 받기 (공개 저장소에는 없음 — 아래 '데이터')
+python -m btc_inventory_quant data verify                       # 받은 페이지가 manifest 의 SHA-256 과 일치하는지
 python -m btc_inventory_quant backtest --config configs/backtest.yaml
 ```
+
+**데이터** — 연구에 쓴 원본 시장 데이터(`data/raw*/` 의 바이낸스 공개 API 응답: 일봉·마크/인덱스 가격·펀딩 이력)와 그 시계열을 그대로 담은 일부 보고서 CSV 는 비공개 작업 저장소에만 두고 **공개 저장소에는 넣지 않았습니다.** 바이낸스는 자사 과거 데이터셋을 비상업·출처 표시 조건으로 배포하고 있고, 공개 API 응답의 재배포를 명시적으로 허용하는 문구는 찾지 못했기 때문입니다. 대신 `data/raw*/manifest.json` — 연구 당시 스냅샷의 구간·행 수·페이지별 SHA-256 — 을 남겼습니다. `download` 는 받은 시점까지의 데이터로 manifest 를 다시 쓰므로 `git diff` 로 연구 스냅샷과 비교할 수 있습니다. 계약 사양 `data/raw/exchange_info.json` 은 실행에 필요해서 포함합니다.
 `reports/<run_id>/` 에 `summary.json`, `backtest_report.md`, `trades.csv`, `daily_equity.csv`, `monthly_returns.csv`, `yearly_returns.csv`, `funding_history.csv`, `fee_history.csv`, `hedge_ratio_history.csv`, `benchmark_comparison.csv`, `drawdown.csv`, `sensitivity.csv`, `charts/*.png` 이 생성됩니다.
 
 과최적화 검증(60/20/20 분리, 제한 그리드, Nested walk-forward, 시작일 의존성):
@@ -131,7 +134,7 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 * ~~절전 복구 수정(2026-09-11) 현장 검증 미완~~ → **2026-09-13 현장 검증 완료.** `scripts/test_suspend_recovery.sh` 로 shadow 프로세스를 90초 정지시킨 결과 정지 감지가 발동해 강제 재연결했고 SAFE_HOLD 는 걸리지 않았다(`docs/incident_2026-09-05_stream_silence.md` §6).
 * **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
 * Testnet 3주차(2026-10-10): 9/30 SAFE_HOLD 사이클이 원장에 펀딩을 쓴 뒤 지갑을 저장하지 못하고 끝나, 재시작 후 원장과 지갑이 0.00000033 BTC 갈라져 있었다(대사 허용오차 아래). income 반영 직후 저장·원장 먼저 쓰기·시작 시 원장 기준 재구성(+알림)으로 수정 — 같은 문서 §7.
-* Testnet 4주차(2026-10-14): 00:05 UTC 판단에서 데모 `/time` 기준 시계 오차 +2초가 13일 중 3일(깨어 있는 맥북, 왕복 ≤ 90 ms) — 사흘 연속이면 래치될 수 있었다. 데모 호스트와 맥북 중 어느 쪽인지 모르는 채로 데모를 기준 삼고 있었으므로, 시계 가드를 **프로덕션 시간 기준**으로 판정하도록 바꾸고(testnet·shadow; live 불변) 두 오프셋을 매 사이클 기록 — 같은 문서 §8.
+* Testnet 4주차(2026-10-14): 00:05 UTC 판단에서 데모 `/time` 기준 시계 오차 +2초가 13일 중 3일(깨어 있는 맥북, 왕복 ≤ 90 ms) — 사흘 연속이면 래치될 수 있었다. 데모 호스트와 맥북 중 어느 쪽인지 모르는 채로 데모를 기준 삼고 있었으므로, 시계 가드를 **프로덕션 시간 기준**으로 판정하도록 바꾸고(testnet·shadow; live 불변) 두 오프셋을 매 사이클 기록 — 같은 문서 §8. **10-16 동시 측정으로 원인 확정: 맥북 시계**(데모·프로덕션 모두 +2.1초) — 데모 호스트 문제가 아니었고, 가드는 의도대로 막았다(같은 문서 §8).
 * Testnet 2주차(2026-09-30)에 실계좌 경로 버그 2건을 더 잡았다: 기상 직후 1.3초 시계 오차를 즉시 SAFE_HOLD 로 래치(→ 2단 가드·재시도·3슬롯 래치로), 60분 넘게 잔 뒤 만료된 listenKey 를 붙들고 5초마다 keepalive 실패를 이틀 반복(→ 연결마다 POST 로 키 요청, 거부되면 새 키). 판단 재시도 경로는 09-29/30 현장 검증됨 — [docs/incident_2026-09-30_testnet_clock_listenkey.md](docs/incident_2026-09-30_testnet_clock_listenkey.md)
 * 데모 호스트의 `GET /dapi/v1/income` 은 `incomeType` 없이 호출하면 빈 배열을 돌려준다(문서와 다름, 2026-09-27 실측). 대사 로직은 타입별로 조회하도록 바꿨고 프로덕션 동작은 UNVERIFIED — `docs/exchange_api_verification.md` §18.
 * Docker 이미지 빌드 미검증(개발 환경에 데몬 없음). `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
@@ -141,6 +144,10 @@ src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchang
 
 API 키·시크릿은 `.env` 에만 두고 커밋하지 않습니다(`.env.example` 만 제공). 로그는 API Key·Secret·Signature·인증 헤더·listenKey 를 자동 마스킹합니다. 출금 권한 없는 키와 IP 화이트리스트, 전용 서브계정을 권장합니다.
 
-## 9. 면책
+## 9. 라이선스
+
+코드는 MIT — [LICENSE](LICENSE). 시장 데이터는 이 라이선스의 대상이 아니며 바이낸스 약관을 따릅니다.
+
+## 10. 면책
 
 이 소프트웨어는 연구·교육 목적이며 수익을 보장하지 않습니다. 백테스트 결과는 과거 데이터에 기반하며 미래 성과를 담보하지 않습니다. 실거래의 모든 책임은 사용자에게 있습니다.

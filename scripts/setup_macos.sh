@@ -33,8 +33,13 @@ if [ ! -f .env ]; then
 fi
 mkdir -p state reports
 
-echo "==> Verifying the committed data snapshot"
-python -m btc_inventory_quant data --raw-dir data/raw verify
+if ls data/raw/klines_1d/page_*.json >/dev/null 2>&1; then
+  echo "==> Verifying the data snapshot"
+  python -m btc_inventory_quant data --raw-dir data/raw verify
+else
+  echo "==> No market data here (the public repository ships manifests only)."
+  echo "    For backtests: python -m btc_inventory_quant data --raw-dir data/raw download"
+fi
 
 echo "==> Running the test suite"
 python -m pytest -q
