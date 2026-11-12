@@ -1,205 +1,208 @@
-# 인시던트 2026-09-05 — 죽은 WebSocket 이 SAFE_HOLD 를 6일간 래치
+# Incident 2026-09-05 — A dead WebSocket latched SAFE_HOLD for 6 days
 
-**분류**: 운영 장애 (전략 무관) · **손실**: 0 (Shadow, 페이퍼 계좌) · **관찰 손실**: 1주차 전량
+**Category**: operational failure (unrelated to the strategy) · **Loss**: 0 (Shadow, paper account) · **Observation lost**: all of week 1
 
 ---
 
-## 1. 무슨 일이 있었나
+## 1. What happened
 
-| 시각 (UTC) | 사건 |
+| Time (UTC) | Event |
 |---|---|
-| 09-04 00:41 | Shadow 에이전트 정상 기동, 페이퍼 계좌 복원(−162 계약), 마크가격 스트림 연결 |
-| 09-04 01:06 | **마지막 스트림 메시지.** 맥북이 절전에 들어감 (KST 10:06) |
-| 09-05 01:53 | 사이클 2 — `WS_SILENT: no stream message for 89196s (connected=True)` → **SAFE_HOLD** |
-| 09-05 ~ 09-11 | 사이클 3–8 전부 `safe_hold`. 판단 0건. 알림 도달 0건 |
-| 09-11 05:50 | 주간 점검에서 발견 |
+| 09-04 00:41 | Shadow agent starts normally, paper account restored (−162 contracts), mark price stream connected |
+| 09-04 01:06 | **Last stream message.** The MacBook goes to sleep (KST 10:06) |
+| 09-05 01:53 | Cycle 2 — `WS_SILENT: no stream message for 89196s (connected=True)` → **SAFE_HOLD** |
+| 09-05 ~ 09-11 | Cycles 3–8 all `safe_hold`. 0 decisions. 0 alerts delivered |
+| 09-11 05:50 | Found in the weekly check |
 
-89,196초 = 24.8시간. 임계값(`ws_max_silence_seconds` 900초)의 99배다.
+89,196 s = 24.8 hours. That is 99 times the threshold (`ws_max_silence_seconds`, 900 s).
 
-## 2. 원인 — 세 가지가 겹쳤다
+## 2. Cause — three things coincided
 
-### ① 소켓이 죽었는데 `connected=True` 로 남았다
+### ① The socket was dead but stayed `connected=True`
 
-`binance_ws.py` 는 `ping_interval=None` 으로 연결하고, `recv()` 를 5초 타임아웃으로 감싼 뒤
-타임아웃이면 조용히 `continue` 했다. 즉 **무음이 아무리 길어져도 재연결을 트리거하는 경로가
-없었다.** 절전으로 TCP 연결이 끊겨도 `recv()` 는 예외를 던지지 않고 계속 타임아웃만 내므로,
-스트림은 "연결됨" 상태로 영원히 죽어 있었다.
+`binance_ws.py` connected with `ping_interval=None`, wrapped `recv()` in a 5-second timeout, and on a timeout
+quietly did `continue`. In other words, **however long the silence grew, there was no path that triggered a
+reconnect.** When sleep dropped the TCP connection, `recv()` did not raise but just kept timing out, so the
+stream stayed dead indefinitely in the "connected" state.
 
-재연결 로직은 존재했다. 다만 **예외가 나야만 동작**했고, 이 실패 모드는 예외를 내지 않는다.
+The reconnect logic did exist. But it **only ran when an exception was raised**, and this failure mode raises none.
 
-### ② 회복 가능한 조건에 킬 스위치를 래치했다
+### ② The kill switch was latched on a recoverable condition
 
-`check_stream_silence` 가 `critical=True` 를 반환했고, `Trader.cycle()` 은 SAFE_HOLD 가 걸리면
-**가드를 평가하기도 전에 반환**한다(`trader.py`). 한 번 래치된 뒤로는 회복을 시도하지도,
-상태를 다시 확인하지도 않았다. 노트북 덮개를 닫는 것만으로 사람이 직접 풀어야 하는 상태에
-들어간 것이다.
+`check_stream_silence` returned `critical=True`, and once SAFE_HOLD is engaged, `Trader.cycle()` **returns
+before even evaluating the guards** (`trader.py`). Once latched, it neither attempted recovery nor re-checked
+the state. Simply closing the laptop lid had put it into a state that a human had to release by hand.
 
-오래된 시세로 주문하지 않는다는 판단 자체는 옳다. 틀린 것은 **그것을 되돌릴 수 없게 만든 것**이다.
+Refusing to place orders on stale prices is, in itself, the right call. What was wrong was **making that irreversible**.
 
-### ③ 알림이 기계 밖으로 나가지 않았다
+### ③ Alerts never left the machine
 
-`alert_channels: [log]` 였다. CRITICAL 알림은 `state/shadow.log` 에만 기록됐고 6일간 아무도
-몰랐다. 상시 무인 운영에서 로그 파일은 알림 채널이 아니다.
+The setting was `alert_channels: [log]`. The CRITICAL alert was written only to `state/shadow.log`, and for 6 days
+nobody knew. In always-on unattended operation, a log file is not an alert channel.
 
-## 3. 왜 중요한가
+## 3. Why it matters
 
-Shadow 라서 손실은 0이다. 같은 일이 live 에서 났다면 **실제 숏 포지션을 든 채 6일 동결,
-리밸런싱 불가, 통보 없음**이었다. 관찰 기간이 존재하는 이유가 이것이고, 1주차는 그 값을 했다.
+Because this was Shadow, the loss is 0; had the same thing happened in live, it would have meant **6 days frozen while
+holding a real short position, no rebalancing possible, no notification**. This is why the observation period exists,
+and week 1 earned its keep.
 
-대신 **1주차 전략 데이터는 쓸 수 없다.** 누적 펀딩 0.0000045 BTC 는 사실상 정산 1회분으로,
-SAFE_HOLD 중에는 페이퍼 계좌의 펀딩 적립도 멈췄다. 관찰 시계는 0일로 되돌아간다.
+The flip side: **week 1's strategy data is unusable.** The cumulative funding of 0.0000045 BTC is effectively 1 settlement's
+worth; during SAFE_HOLD, funding accrual on the paper account stopped as well. The observation clock goes back to 0 days.
 
-## 4. 무엇을 고쳤나
+## 4. What was fixed
 
-| # | 수정 | 파일 | 근거 |
+| # | Fix | File | Rationale |
 |---|---|---|---|
-| 1 | **정지 감지** — `recv_timeout` 보다 오래 걸릴 수 없는 루프 1회가 벽시계로 60초를 넘으면 호스트가 얼었던 것으로 보고 강제 재연결 | `exchange/binance_ws.py` | 클라이언트 자체 시계만 사용. 거래소 동작에 대한 가정 없음 |
-| 2 | **무음 기반 강제 재연결** — 연속 송출 스트림(`markPrice`, 약 3초 간격)이 60초간 조용하면 강제 재연결 | 〃 | 〃 |
-| 3 | **유휴 유저 스트림을 무음 판정에서 제외** — 이벤트 구동 스트림은 몇 시간 조용한 것이 정상 | 〃 | 잠재 버그: live 계좌에 체결이 없으면 정상인데도 가드가 터졌을 것 |
-| 4 | **재연결 시 포지션 스냅샷 폐기** — 공백 동안 `ACCOUNT_UPDATE` 를 놓쳤을 수 있으므로 REST 와 비교할 근거가 못 된다 | 〃 | "안 듣고 있었다"는 이유로 SAFE_HOLD 가 걸리는 것을 막음 |
-| 5 | **`WS_SILENT` 를 critical → blocking 으로 강등** | `risk/guards.py` | 주문은 계속 막되 래치하지 않음 |
-| 6 | **연속 N 사이클 지속 시에만 래치** (`risk.stale_data_cycles_to_safe_hold`, 기본 3) | `runtime/trader.py` | 카운터는 DB 에 저장 — 재시작으로 증거가 지워지지 않는다 |
-| 7 | **스트림 감시자** — 스레드가 죽었거나 회복하지 못하면 heartbeat 가 번들을 재시작(쿨다운 포함) | 〃 | 스레드 자체가 죽는 경우는 스트림이 스스로 못 고친다 |
-| 8 | **Telegram 알림** | `configs/shadow.yaml` | 기계 밖으로 나가는 채널 |
-| 9 | **`caffeinate -s`** | `scripts/launchd/*.plist` | 절전으로 판단 시각이 매일 0~113분 밀렸다 |
+| 1 | **Stall detection** — if 1 iteration of the loop, which cannot take longer than `recv_timeout`, exceeds 60 s on the wall clock, treat the host as having been frozen and force a reconnect | `exchange/binance_ws.py` | Uses only the client's own clock. No assumptions about exchange behaviour |
+| 2 | **Silence-based forced reconnect** — if a continuously publishing stream (`markPrice`, roughly every 3 s) is quiet for 60 s, force a reconnect | 〃 | 〃 |
+| 3 | **Exclude an idle user stream from the silence verdict** — for an event-driven stream, hours of quiet are normal | 〃 | Latent bug: on a live account with no fills, the guard would have fired even though everything was normal |
+| 4 | **Discard the position snapshot on reconnect** — `ACCOUNT_UPDATE` may have been missed during the gap, so the snapshot is no basis for comparison with REST | 〃 | Prevents SAFE_HOLD from engaging just because "we weren't listening" |
+| 5 | **Downgrade `WS_SILENT` from critical → blocking** | `risk/guards.py` | Orders stay blocked, but it does not latch |
+| 6 | **Latch only if it persists for N consecutive cycles** (`risk.stale_data_cycles_to_safe_hold`, default 3) | `runtime/trader.py` | The counter is stored in the DB — a restart does not erase the evidence |
+| 7 | **Stream supervisor** — if a thread has died or fails to recover, the heartbeat restarts the bundle (with a cooldown) | 〃 | When the thread itself dies, the stream cannot fix itself |
+| 8 | **Telegram alerts** | `configs/shadow.yaml` | A channel that leaves the machine |
+| 9 | **`caffeinate -s`** | `scripts/launchd/*.plist` | Sleep had been pushing the decision time back by 0–113 minutes every day |
 
-### 검증하지 못한 것
+### What we could not verify
 
-클라이언트 발 WebSocket ping 에 Binance 가 pong 으로 응답하는지는 **확인하지 못했다** —
-클라우드 컨테이너는 WebSocket 이 프록시에서 차단되고, 맥북의 로컬 VM 은 외부 DNS 가 없다.
-그래서 **위 수정 중 어느 것도 client ping 에 의존하지 않는다.** 전부 우리 쪽 시계와 우리 쪽
-메시지 카운터만 사용한다. 거래소 동작에 대한 미검증 가정을 넣지 않기 위한 선택이다.
+Whether Binance answers a client-initiated WebSocket ping with a pong **could not be confirmed** — in the cloud
+container, WebSockets are blocked at the proxy, and the MacBook's local VM has no external DNS. So **none of the
+fixes above relies on client pings.** All of them use only our own clock and our own message counters. That choice
+was made so as not to build in unverified assumptions about exchange behaviour.
 
-## 5. 회귀 테스트
+## 5. Regression tests
 
-수정 전 코드에서 **10건 전부 실패하는 것을 확인한 뒤** 커밋했다.
+Committed **after confirming that all 10 fail on the pre-fix code**.
 
-* `tests/integration/test_websocket_streams.py` — 조용한 소켓이 재연결을 유발하는가, 유휴 유저
-  스트림이 오탐을 내지 않는가, 정지 갭이 감지되는가, 재연결이 스냅샷을 버리는가 (4건)
-* `tests/simulation/test_stale_data_recovery.py` — 차단은 하되 래치하지 않는가, 스스로 회복하는가,
-  지속되면 래치하는가, 카운터가 재시작을 견디는가, 죽은 스레드를 재시작하는가, 재시작이
-  쿨다운을 지키는가 (6건)
+* `tests/integration/test_websocket_streams.py` — does a quiet socket trigger a reconnect, does an idle user
+  stream avoid false alarms, is a stall gap detected, does a reconnect discard the snapshot (4 tests)
+* `tests/simulation/test_stale_data_recovery.py` — does it block without latching, does it recover on its own,
+  does it latch if the condition persists, does the counter survive a restart, is a dead thread restarted, do
+  restarts respect the cooldown (6 tests)
 
-## 6. 남은 것
+## 6. What remains
 
-* `check_ws_position` 은 여전히 critical 이다. 재연결 시 스냅샷을 버리므로 이번 원인으로는
-  터지지 않지만, live 에서 처음 돌릴 때 다시 볼 것.
-* 1주차 관찰은 폐기. 재시작 시점부터 다시 센다.
-* ~~현장 검증 미완~~ → **현장 검증 완료 (2026-09-13 01:49 UTC)**. 재시작 후 48시간 동안
-  `forcing stream reconnect` 가 0건이었는데, 이는 caffeinate 가 절전 자체를 막아 수정이 발동할
-  상황이 오지 않았기 때문이다 — 조건을 제거한 것이지 수정을 검증한 것이 아니었다. 그래서
-  `scripts/test_suspend_recovery.sh` 로 **shadow 프로세스를 SIGSTOP 으로 90초 얼렸다가 깨웠다**
-  (절전이 프로세스에 하는 일과 동일). 결과:
+* `check_ws_position` is still critical. Since the snapshot is discarded on reconnect, it will not fire from this
+  cause, but look at it again on the first live run.
+* Week 1 observations are discarded. Counting starts over from the restart.
+* ~~Field verification pending~~ → **Field verification done (2026-09-13 01:49 UTC)**. In the 48 hours after the
+  restart there were 0 `forcing stream reconnect` lines, but that was because caffeinate prevented sleep altogether,
+  so the situation that would trigger the fix never arose — that removed the condition; it did not verify the fix.
+  So with `scripts/test_suspend_recovery.sh` we **froze the shadow process with SIGSTOP for 90 seconds and then woke it**
+  (the same thing sleep does to a process). Result:
 
   ```
   "forcing stream reconnect", "stream": "mark_price", "reason": "host suspended or stalled for 93s"
-  system_state: NORMAL · ws_connected: True · 154 계약 유지
+  system_state: NORMAL · ws_connected: True · 154 contracts held
   ```
 
-  정지 감지가 발동해 강제 재연결했고, SAFE_HOLD 는 걸리지 않았다. 9/5 와 같은 조건에서
-  6일이 걸리던 회복이 20초 안에 끝났다. 덮개 닫기·배터리 사용도 같은 경로(프로세스 정지 →
-  기상 시 벽시계 공백 감지)를 타므로 별도 검증이 필요 없다.
+  Stall detection fired and forced a reconnect, and SAFE_HOLD did not engage. A recovery that had taken 6 days
+  under the same conditions as 9/5 was done within 20 seconds. Closing the lid and running on battery take the
+  same path (process stopped → wall-clock gap detected on wake), so they need no separate verification.
 
-## 7. 후속 — 감시자(수정 #7) 자체의 버그 (2026-09-14)
+## 7. Follow-up — a bug in the supervisor (fix #7) itself (2026-09-14)
 
-뚜껑을 닫고 쓴 첫날 밤, 맥북이 자다 깨기를 반복했다. 깰 때마다 Wi-Fi 가 붙기 전 몇십 초 동안
-DNS 가 실패하고(`gaierror: nodename nor servname provided`) 스트림은 백오프로 대기한다 — 정상이다.
-그런데 **23:58 UTC 감시자가 `restart()` 를 부른 순간 스트림 스레드는 30초 백오프 sleep 중이었다.**
+On the first night of running with the lid closed, the MacBook kept going to sleep and waking up. On each wake, DNS
+fails for a few dozen seconds before Wi-Fi reconnects (`gaierror: nodename nor servname provided`) and the stream waits
+in backoff — that is normal. But **at 23:58 UTC, at the moment the supervisor called `restart()`, the stream thread was
+in a 30-second backoff sleep.**
 
-* `stop()` 은 5초만 join 하고 포기했다
-* `start()` 는 "옛 스레드가 아직 살아 있다"고 보고 **아무것도 하지 않았다**
-* 옛 스레드는 sleep 이 끝난 뒤 stop 플래그를 보고 조용히 종료했다 — 로그 한 줄 없이
-* 감시자의 900초 쿨다운이 지난 00:16 에야 `thread dead` 로 발견해 진짜 재시작했다
+* `stop()` joined for only 5 seconds and gave up
+* `start()` concluded that "the old thread is still alive" and **did nothing**
+* Once its sleep ended, the old thread saw the stop flag and exited quietly — without a single log line
+* Not until 00:16 — once the supervisor's 900-second cooldown had passed — was it found as `thread dead` and actually restarted
 
-**18분간 스트림이 없었고**, 그 사이 00:05 판단이 끼어 `stale_data_blocked (1/3)` 로 차단됐다.
-래치는 안 됐으니 9/5 의 재발은 아니지만, 스트림을 살리라고 둔 감시자가 스트림을 죽인 것이다.
+**For 18 minutes there was no stream**, and the 00:05 decision fell inside that window and was blocked with
+`stale_data_blocked (1/3)`. It did not latch, so this was not a repeat of 9/5 — but the supervisor that was there to
+keep the stream alive had killed the stream.
 
-수정 (`de0477a`, 회귀 테스트 3건 — 수정 전 코드에서 실패 확인, 수정 전 코드로 재현 시
-`restart` 5.0초·새 스레드 없음 / 수정 후 0.4초·새 스레드):
+Fix (`de0477a`, 3 regression tests — confirmed failing on the pre-fix code; in a reproduction, `restart` took
+5.0 s and started no new thread on the pre-fix code / 0.4 s with a new thread after the fix):
 
-| # | 수정 | 근거 |
+| # | Fix | Rationale |
 |---|---|---|
-| 1 | 백오프 sleep 이 0.5초마다 stop 을 확인 | `restart()` 가 즉시 먹힌다 |
-| 2 | `start()` 가 종료 중인 옛 스레드를 기다린 뒤 새로 띄움 | 조용한 no-op 이 원인이었다 |
-| 3 | 스레드가 죽으면 ERROR 로그 (BaseException 포함) | 이번엔 이유가 로그에 없어 타이밍으로 역추적했다 |
-| 4 | 죽은 스레드는 쿨다운 없이 즉시 재시작 | 쿨다운은 죽은 네트워크의 churn 방지용이지 죽은 스레드용이 아니다 |
-| 5 | `cycle()` 이 가드 평가 전에 감시자를 먼저 돌림 | 기상 직후 판단은 heartbeat 보다 먼저 실행된다 |
+| 1 | The backoff sleep checks for stop every 0.5 s | `restart()` takes effect immediately |
+| 2 | `start()` waits for an old thread that is still exiting, then starts a new one | The silent no-op was the cause |
+| 3 | ERROR log when the thread dies (including BaseException) | This time the reason was not in the log and had to be traced back from timing |
+| 4 | A dead thread is restarted immediately, without the cooldown | The cooldown is there to prevent churn on a dead network, not for dead threads |
+| 5 | `cycle()` runs the supervisor before evaluating the guards | Right after a wake, the decision runs before the heartbeat |
 
-교훈: **복구 경로도 실패 모드가 있다.** 1차(스레드 자체 감지)와 2차(감시자)가 같은 순간에
-출발하면 2차가 1차를 죽일 수 있었다. 쿨다운은 "무엇을 막으려는 것인가"를 조건에 써야 한다.
+Lesson: **recovery paths have failure modes too.** When the 1st line (the thread's own detection) and the 2nd line
+(the supervisor) set off at the same moment, the 2nd could kill the 1st. A cooldown's condition has to spell out
+"what is it meant to prevent?"
 
-## 8. 후속 — 감시자가 1차 복구를 앞질러 알림을 냈다 (2026-09-14)
+## 8. Follow-up — the supervisor got ahead of 1st-line recovery and raised an alert (2026-09-14)
 
-09-13 06:31 ~ 09-14 12:34 UTC 사이 기상(wake) 17회(SIGSTOP 시험 제외). 그중 900초(임계값)
-넘게 잔 것이 7회였고, 이 7회의 로그를 나란히 놓으면 두 갈래가 보인다.
+Between 09-13 06:31 and 09-14 12:34 UTC there were 17 wakes (excluding the SIGSTOP test). In 7 of them the Mac had
+slept for longer than 900 s (the threshold), and laying the logs of those 7 side by side shows two branches.
 
-| 기상 | 처리한 쪽 | 로그 | 알림 |
+| Wake | Handled by | Log | Alert |
 |---|---|---|---|
-| 07:04 · 07:38 · 07:54 · 08:11 (09-13) | 스트림 스레드(1차) | `forcing stream reconnect … host suspended` | 없음 |
-| 09:12 (09-13) · 23:58 (09-13) · 12:13 (09-14) | 감시자(2차) | `restarting streams … silent for 958s / 1091s / 1057s` | WARNING 3건 |
+| 07:04 · 07:38 · 07:54 · 08:11 (09-13) | Stream thread (1st line) | `forcing stream reconnect … host suspended` | None |
+| 09:12 (09-13) · 23:58 (09-13) · 12:13 (09-14) | Supervisor (2nd line) | `restarting streams … silent for 958s / 1091s / 1057s` | 3 WARNINGs |
 
-감시자가 처리한 3회는 **직전에 스트림 쪽 `forcing stream reconnect` 줄이 없다.** 즉 스트림
-스레드가 기상 후 자기 차례(`recv` 타임아웃 ≤ 5초)를 받기도 전에 heartbeat 가 먼저 돌아 "무음
-1000초, 살아 있음, 재연결 안 함"으로 판정해 재시작한 것이다. 결과는 같다(스트림은 살아난다).
-다른 것은 **길게 잔 7회 중 3회, 운영자에게 WARNING 이 갔다**는 점이고, 그 알림이
-쌓이면 진짜 WARNING(`stale_data_blocked`)을 무시하게 된다. 알림 피로는 운영 리스크다.
+The 3 wakes the supervisor handled **have no stream-side `forcing stream reconnect` line just before them.** That is,
+after the wake the heartbeat ran before the stream thread had even had its turn (`recv` timeout ≤ 5 s), reached the
+verdict "silent for 1000 s, alive, not reconnecting" and restarted it. The outcome is the same (the stream comes back).
+What differs is that **in 3 of the 7 long sleeps, a WARNING went to the operator**, and as such alerts pile up, real
+WARNINGs (`stale_data_blocked`) get ignored. Alert fatigue is an operational risk.
 
-처음 떠올린 수정 — "스트림이 마지막 메시지 이후 연결을 시도했으면 양보" — 은 로그로 기각됐다.
-경쟁에서 진 3회 모두 감시자가 볼 때 아직 시도가 **없었다**. 조건을 아무리 잘 써도 첫 관찰에서
-판정하는 한 경쟁은 남는다.
+The first fix that came to mind — "yield if the stream has attempted to connect since its last message" — was rejected
+on the evidence of the logs. In all 3 lost races, there had **not** yet been any attempt when the supervisor looked.
+However well the condition is written, as long as the verdict is reached on the first look, the race remains.
 
-수정: **살아 있는 스트림을 무음만으로 재시작하지 않는다.** 감시자는 스트림이 한 일(마지막 메시지,
-마지막 연결 시도)을 적어 두고, 그것이 **깨어 있는 시간으로 180초 동안 그대로**일 때만 재시작한다.
+Fix: **an alive stream is never restarted on silence alone.** The supervisor notes what the stream has done (last message,
+last connection attempt) and restarts only when that has **stayed unchanged for 180 s of awake time**.
 
-* 첫 관찰은 항상 양보 — 기상 경쟁 자체가 사라진다
-* 연결 시도가 이어지는 한(네트워크가 몇 시간 없어도 30~40초마다 시도한다) 손대지 않는다 —
-  이전에는 긴 정전 중 900초마다 재시작 + 알림이 반복됐다
-* 깨어 있는 시간은 폴 사이 간격의 합으로 재되, 폴 간격보다 훨씬 긴 공백(절전)은 더하지 않는다 —
-  잠든 동안은 스트림 스레드도 시도할 수 없었으므로
-* 180초의 근거: 정상 루프의 최대 시도 간격은 약 76초다(백오프 30초 + 연결 타임아웃 10초, 또는
-  무음 60초 + recv 5초 + 연결). 3분간 시도가 하나도 없으면 루프가 멈춘 것이지 네트워크가 느린
-  것이 아니다
-* 죽은 스레드(`alive() == False`)는 종전대로 즉시 재시작
+* The first look always yields — the wake race itself disappears
+* As long as connection attempts keep coming (even with no network for hours, it attempts every 30–40 s), it is left
+  alone — previously, during a long outage, a restart + alert was repeated every 900 s
+* Awake time is measured as the sum of the intervals between polls, but gaps far longer than the poll interval (sleep)
+  are not added — while asleep, the stream thread could not have attempted anything either
+* Basis for 180 s: in a healthy loop the longest interval between attempts is about 76 s (30 s backoff + 10 s connect
+  timeout, or 60 s silence + 5 s recv + the connect). 3 minutes without a single attempt means the loop has stopped, not
+  that the network is slow
+* A dead thread (`alive() == False`) is restarted immediately, as before
 
-회귀 테스트 7건(`test_stale_data_recovery.py`, 수정 전 코드에서 실패 확인): 첫 관찰은 재시작
-안 함(12:13 의 1057초 그대로 재현), 시도가 이어지면 30분간 재시작 0, 시도가 멈추면 3~4분 안에
-재시작, 절전 공백은 정체 시간에 안 들어감, 재시작 후 다시 정체하면 쿨다운 적용.
+7 regression tests (`test_stale_data_recovery.py`, confirmed failing on the pre-fix code): no restart on the first look
+(reproducing the 12:13 case, 1057 s, exactly), restarts over 30 minutes of continuing attempts: 0, a restart within
+3–4 minutes once attempts stop, sleep gaps not counted as stall time, the cooldown applied if it stalls again after a restart.
 
-## 9. 분석에서 발견 — 판단 시각에 잠들어 있으면 그날 판단이 사라진다
+## 9. Found in analysis — if asleep at the decision time, that day's decision is lost
 
-§8 을 조사하다 발견했고 **아직 일어나지 않은** 일이다. 09-12/13/14 의 판단은 전부 00:05:01 에
-실행됐다 — 세 아침 모두 맥북이 깨어 있었다. 아니었다면:
+Found while investigating §8; this has **not happened yet**. The decisions of 09-12/13/14 all ran at 00:05:01 — on all
+three mornings the MacBook was awake. Had it not been:
 
-1. 절전 중이던 프로세스는 깨어나는 순간 `cycle()` 을 실행한다 (판단 시각을 지났으므로)
-2. 그 순간 Wi-Fi 는 보통 없다. REST 는 재시도(≈15초)를 다 쓰고 `ExchangeUnavailable` → 결과 `error`
-3. 루프는 **다음 판단 시각(내일)까지 잔다.** 그날 판단은 없다
-4. `consecutive_data_errors` 가 1 오른다. **그런 아침이 3번 연속이면 SAFE_HOLD** — 1주차와 같은
-   결말을, 이번엔 30초 뒤 저절로 붙는 Wi-Fi 때문에 맞는다
+1. The process that was asleep runs `cycle()` the moment it wakes (because the decision time has passed)
+2. At that moment there is usually no Wi-Fi. REST uses up its retries (≈15 s) and raises `ExchangeUnavailable` → result `error`
+3. The loop **sleeps until the next decision time (tomorrow).** There is no decision that day
+4. `consecutive_data_errors` goes up by 1; **3 such mornings in a row means SAFE_HOLD** — the same ending as week 1
+   but this time brought about by a Wi-Fi connection that comes back by itself 30 seconds later
 
-수정: `error` 또는 스트림 스테일만이 이유인 `blocked` 로 끝난 판단은 **`decision_retry_seconds`
-(600초)마다 다음 판단 시각까지 재시도**한다. `cycle()` 은 캔들 단위로 멱등이므로 성공한 판단을
-다시 부를 위험은 없다. 계좌 설정(마진 타입·레버리지) 때문에 막힌 판단은 재시도하지 않는다 — 10분
-뒤에 저절로 고쳐지는 종류가 아니다.
+Fix: a decision that ended in `error`, or in `blocked` with stream staleness as its only reason, is **retried every
+`decision_retry_seconds` (600 s) until the next decision time**. `cycle()` is idempotent per candle, so there is no risk
+of re-running a decision that succeeded. A decision blocked by account settings (margin type, leverage) is not retried —
+that is not the kind of thing that fixes itself 10 minutes later.
 
-이때 "3회 연속 실패 → SAFE_HOLD" 두 카운터(접속 실패, 스테일 데이터)를 **판단 슬롯(일) 기준**으로
-바꿨다. 한 아침에 재시도 3번은 나쁜 날 하루지, 이 상승 조건이 잡으려는 "나쁜 날 사흘"이 아니다.
-알림도 슬롯당 1건이다. 회귀 테스트 6건(`test_decision_retry.py`): 10분 뒤 재시도, 성공한 판단은
-내일까지 대기, 한 정전의 재시도 3번 = 알림 1건·실패 1회, 사흘 연속은 여전히 래치, 재시도 대상
-분류, 스테일 → 스트림 자체 복구 → 재시도 성공(재시작 0·알림 1건).
+Along with this, the two "3 consecutive failures → SAFE_HOLD" counters (connection failures, stale data) were changed to
+count **per decision slot (day)**. 3 retries in one morning are one bad day, not the "three bad days" this escalation
+condition is meant to catch. Alerts are also 1 per slot. 6 regression tests (`test_decision_retry.py`): retry after 10
+minutes, a successful decision waits until tomorrow, 3 retries in one outage = 1 alert and 1 failure, three days in a row
+still latch, classification of what gets retried, stale → the stream recovers by itself → retry succeeds (0 restarts, 1 alert).
 
-~~정직하게 적어 두면: 이것은 사건이 아니라 코드 읽기에서 나온 수정이다. 현장에서 검증됐다는 뜻은
-아니다.~~ → **현장 검증 완료 (2026-09-29, 09-30).** 이틀 연속 판단 시각에 맥북이 절전 중이었고,
-깨어난 직후 두 에이전트 모두 `GET …: ConnectError` 로 실패했다. 로그 순서 그대로:
+~~To be honest about it: this fix came from reading the code, not from an incident. It does not mean it has been verified
+in the field.~~ → **Field verification done (2026-09-29, 09-30).** On two days in a row the MacBook was asleep at the
+decision time, and right after waking both agents failed with `GET …: ConnectError`. The log lines, in order:
 
 ```
-09-29 00:42:10  ALERT exchange_unavailable (슬롯당 1건)
+09-29 00:42:10  ALERT exchange_unavailable (1 per slot)
 09-29 00:42:10  decision will be retried  at 00:52:10
-09-29 00:53:04  cycle done  action=none            ← testnet · shadow 는 00:53:27
+09-29 00:53:04  cycle done  action=none            ← testnet · shadow at 00:53:27
 09-30 00:05:51  ALERT exchange_unavailable
-09-30 00:34:08  exchange still unavailable on retry  bad_slots=1   ← 알림 없음, 카운터 그대로
+09-30 00:34:08  exchange still unavailable on retry  bad_slots=1   ← no alert, counter unchanged
 09-30 00:44:18  cycle done  action=none            ← shadow
 ```
 
-재시도가 없었다면 이틀치 판단이 사라지고 접속 실패 카운터가 2 가 됐을 것이다. 09-30 의 testnet
-재시도는 판단 대신 시계 오차 가드에 걸렸는데, 그건 다음 인시던트 문서의 몫이다
-([incident_2026-09-30_testnet_clock_listenkey.md](incident_2026-09-30_testnet_clock_listenkey.md)).
+Without the retry, the connection-failure counter would have reached 2 and two days' decisions would have been lost.
+The testnet retry on 09-30 ran into the clock-skew guard instead of making a decision, but that belongs to the next
+incident document ([incident_2026-09-30_testnet_clock_listenkey.md](incident_2026-09-30_testnet_clock_listenkey.md)).

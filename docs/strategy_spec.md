@@ -1,87 +1,87 @@
-# 전략 명세 — Regime Hedge V1 (초기 검증용 기준 전략)
+# Strategy specification — Regime Hedge V1 (baseline strategy for initial validation)
 
-구현: `src/btc_inventory_quant/strategy/regime_hedge.py`, `state_machine.py`, `benchmarks.py`, `risk/limits.py`, `execution/rebalancer.py`
-파라미터: `configs/backtest.yaml` → `strategy.regime_hedge` (코드에 고정하지 않음)
+Implementation: `src/btc_inventory_quant/strategy/regime_hedge.py`, `state_machine.py`, `benchmarks.py`, `risk/limits.py`, `execution/rebalancer.py`
+Parameters: `configs/backtest.yaml` → `strategy.regime_hedge` (not hard-coded)
 
-## 1. 목적과 경제 구조
+## 1. Purpose and economic structure
 
-BTC 를 장기 보유하면서 BTC 담보 COIN-M Inverse 무기한(BTCUSD_PERP) 숏 비율을 0~85% 사이에서 점진 조절한다.
+While holding BTC long-term, the strategy gradually adjusts the ratio of a BTC-collateralised COIN-M inverse perpetual (BTCUSD_PERP) short within the 0~85% range.
 
-* 100% 헤지 = 합성 달러(USD 가치 고정). 수익 전략이 아니다.
-* 수익은 "높은 가격/하락 확인 → 헤지 ↑ → 하락 시 숏 BTC 수익 → 반등 확인 → 헤지 ↓ → 늘어난 BTC 로 상승 참여" 사이클에서만 나온다.
-* 성과는 **BTC 수량**과 **USD 가치·낙폭**을 함께 본다. BTC 만 늘고 USD 가 무너지면 실패다.
+* A 100% hedge = a synthetic dollar (USD value locked in). This is not a profit strategy.
+* Profit comes only from the cycle "high price / decline confirmed → hedge ↑ → the short earns BTC during the decline → rebound confirmed → hedge ↓ → take part in the rally with the enlarged BTC holding".
+* Performance is judged on **BTC quantity** and **USD value and drawdown** together. If only BTC grows while USD collapses, that is a failure.
 
-## 2. 신호 (완결된 UTC 일봉만 사용)
+## 2. Signals (completed UTC daily bars only)
 
-| 항목 | 정의 |
+| Item | Definition |
 |---|---|
 | EMA20/50/200 | `ewm(span=n, adjust=False)` |
 | ATR20 | Wilder RMA(True Range, 20) |
-| 상승장(bull) | close > EMA200 **and** EMA50[t] > EMA50[t−5] |
-| 하락장(bear) | close < EMA200 **and** EMA50[t] < EMA50[t−5] |
-| 중립장(neutral) | 그 외 |
-| 상태 확정 | 새 상태가 **2개 완결 일봉** 연속 유지될 때만 전환 (`RegimeStateMachine`) |
-| 기본 헤지율 | bull 10% / neutral 45% / bear 80% |
-| 과열 보정 | close > EMA20 + 2·ATR20 → +10%p |
-| 과매도 반등 보정 | close < EMA20 − 2·ATR20 **and** close > 전일 close → −10%p |
-| 원시 목표 | 기본 + 보정, [0, 1] 로 클립 |
+| Bull regime (bull) | close > EMA200 **and** EMA50[t] > EMA50[t−5] |
+| Bear regime (bear) | close < EMA200 **and** EMA50[t] < EMA50[t−5] |
+| Neutral regime (neutral) | otherwise |
+| State confirmation | switch only when the new state holds for **2 consecutive completed daily bars** (`RegimeStateMachine`) |
+| Base hedge ratio | bull 10% / neutral 45% / bear 80% |
+| Overbought adjustment | close > EMA20 + 2·ATR20 → +10%p |
+| Oversold-rebound adjustment | close < EMA20 − 2·ATR20 **and** close > previous day's close → −10%p |
+| Raw target | base + adjustments, clipped to [0, 1] |
 
-## 3. 리스크 파이프라인 (전략 밖, `RiskLimits` 단일 정의)
+## 3. Risk pipeline (outside the strategy, single definition in `RiskLimits`)
 
 ```
-원시 목표 → clamp[min 0%, max 85%] → 일 변경 ±20%p 캡(현재 유효 헤지율 기준)
-          → |목표 − 현재| < 10%p 이면 거래 없음
-          → 목표 계약수 = floor(equity_btc × mark × 목표 / 100) → δ = 목표 − 현재 계약
-          → δ > 0: SELL(숏 증가) / δ < 0: BUY reduce-only (숏 수량 초과 금지, 롱 전환 금지)
+raw target → clamp[min 0%, max 85%] → daily change cap ±20%p (relative to the current effective hedge ratio)
+           → if |target − current| < 10%p, no trade
+           → target contracts = floor(equity_btc × mark × target / 100) → δ = target − current contracts
+           → δ > 0: SELL (increase the short) / δ < 0: BUY reduce-only (never exceed the short quantity, never flip to long)
 ```
 
-* 유효 헤지율 = 숏 명목가치(USD) / (equity_btc × mark). 가격이 오르면 자동으로 낮아지고 내리면 높아진다.
-* 유효 레버리지 ≤ 1, 숏 명목가치 ≤ 총자산. 마틴게일·물타기 없음.
+* Effective hedge ratio = short notional (USD) / (equity_btc × mark). It falls automatically when the price rises and rises when the price falls.
+* Effective leverage ≤ 1, short notional ≤ total equity. No martingale, no averaging down.
 
-## 4. 벤치마크
+## 4. Benchmarks
 
-HODL(헤지 0) / 고정 100% 숏(명시적 캡 우회) / 고정 50% 숏 / EMA200 단순(종가 < EMA200 → 80%, 아니면 0%) / 동적 V1.
-고정 전략도 동일한 20%p 캡·10%p 최소차 규칙으로 리밸런싱한다(드리프트 보정).
+HODL (hedge 0) / fixed 100% short (explicitly bypasses the cap) / fixed 50% short / simple EMA200 (close < EMA200 → 80%, otherwise 0%) / dynamic V1.
+The fixed strategies are also rebalanced under the same 20%p cap and 10%p minimum-difference rules (drift correction).
 
-## 5. 검증 결과 요약 (2021-03-10 → 2026-09-01, 실데이터, Taker 0.05%·5bp·실제 펀딩)
+## 5. Summary of validation results (2021-03-10 → 2026-09-01, real data, Taker 0.05%·5bp·actual funding)
 
-| 전략 | 최종 BTC | USD CAGR | USD MDD | 거래 | 펀딩(BTC) | 판정 |
+| Strategy | Final BTC | USD CAGR | USD MDD | Trades | Funding (BTC) | Verdict |
 |---|---|---|---|---|---|---|
-| HODL | 1.000 | +6.4% | −76.7% | 0 | 0 | 기준 |
-| 고정 50% | 1.246 | +10.8% | −48.7% | 11 | +0.246 | PASS |
-| 고정 100% | 1.172 | +9.6% | −4.3% | 9 | +0.527 | PASS |
-| EMA200 단순 | 1.071 | +7.8% | −50.6% | 165 | +0.051 | PASS |
-| **동적 V1** | **1.109** | **+8.5%** | **−47.1%** | **243** | **+0.125** | PASS(전기간) |
+| HODL | 1.000 | +6.4% | −76.7% | 0 | 0 | Baseline |
+| Fixed 50% | 1.246 | +10.8% | −48.7% | 11 | +0.246 | PASS |
+| Fixed 100% | 1.172 | +9.6% | −4.3% | 9 | +0.527 | PASS |
+| Simple EMA200 | 1.071 | +7.8% | −50.6% | 165 | +0.051 | PASS |
+| **Dynamic V1** | **1.109** | **+8.5%** | **−47.1%** | **243** | **+0.125** | PASS (full period) |
 
-BTC 손익 분해(V1): 헤지 타이밍 +0.0076 / 펀딩 +0.1246 / 수수료 −0.0238 → **순증가의 원천은 펀딩 캐리**.
+BTC P&L decomposition (V1): hedge timing +0.0076 / funding +0.1246 / fees −0.0238 → **the source of the net gain is funding carry**.
 
-### 과최적화 검증 (`reports/research_v1/research_report.md`)
+### Overfitting checks (`reports/research_v1/research_report.md`)
 
-* 시간순 60/20/20: 연구구간 PASS, **검증구간(2024-06~2025-07 강세장) 모든 헤지 전략 FAIL**, OOS(2025-07~2026-09 약세장) 모두 PASS → 결과는 구간의 시장 방향에 의해 결정됨.
-* Nested walk-forward 7폴드: V1 은 BTC 증가 1/7, HODL(USD) 초과 1/7. 훈련구간 그리드로 고른 적응 파라미터는 고정 V1 보다 **더 나쁨** → 파라미터 튜닝 금지.
-* 시작일 의존성(2년 보유 14개 시작일): BTC 증가 6/14, 중앙값 −8%. V1 곡선은 고정 50% 와 거의 일치 → 상태 판정 로직의 정보 가치가 미미.
-* 민감도: 수수료×2·슬리피지×3 은 완만한 악화, **펀딩 −1bp/8h 이면 FAIL**, 신호 1일 지연·주문 누락·부분체결이 오히려 개선(=신호 과민).
+* Chronological 60/20/20: research segment PASS, **validation segment (2024-06~2025-07 bull market): every hedge strategy FAILs**, OOS (2025-07~2026-09 bear market): all PASS → the outcome is determined by the market direction of the segment.
+* Nested walk-forward, 7 folds: V1 grew BTC in 1/7, outperformed HODL (USD) in 1/7. Adaptive parameters chosen by a grid on the training segment were **worse** than fixed V1 → no parameter tuning.
+* Start-date dependence (2-year holds, 14 start dates): BTC grew in 6/14, median −8%. The V1 curve almost coincides with fixed 50% → the state-classification logic carries negligible information value.
+* Sensitivity: fees ×2 and slippage ×3 cause a mild deterioration, **funding at −1bp/8h means FAIL**, and a 1-day signal delay, missed orders and partial fills actually improve the result (= the signal is oversensitive).
 
-### 결론 (정직한 판정)
+### Conclusion (honest verdict)
 
-**V1 에 타이밍 알파는 없다.** 일관된 효과는 (1) USD 낙폭 축소, (2) 양(+)의 펀딩 캐리 두 가지뿐이며, 둘 다 정적 50% 헤지로도 얻는다. 따라서
+**V1 has no timing alpha.** Its only consistent effects are two — (1) a smaller USD drawdown and (2) positive (+) funding carry — and both are also obtained with a static 50% hedge. Therefore
 
-1. 실거래 목적은 "수익"이 아니라 "USD 낙폭 관리 + 펀딩 수취"로 재정의해야 한다.
-2. 펀딩이 음(−)으로 전환되는 국면(숏 과밀 약세장)에서는 전략이 손실을 낸다 → 펀딩 조건부 헤지 축소 규칙이 V2 후보다.
-3. 상태 전환(98회/2,002일)을 줄이는 방향(확인일 연장, 히스테리시스)이 거래비용을 줄이지만, 워크포워드는 그것이 알파를 만들지 못함을 보여줬다.
-4. 어떤 변경도 새 OOS 구간(2026-09 이후 데이터)에서만 평가해야 한다.
+1. The purpose of live trading must be redefined not as "profit" but as "USD drawdown management + funding collection".
+2. In phases where funding turns negative (−) (bear markets crowded with shorts), the strategy loses money → a funding-conditional hedge-reduction rule is the V2 candidate.
+3. Reducing state switches (98 switches / 2,002 days) — a longer confirmation period, hysteresis — cuts trading costs, but walk-forward showed that this does not create alpha.
+4. Any change must be evaluated only on a new OOS segment (data after 2026-09).
 
-## 6. 파라미터 표 (초기값, 영구값 아님)
+## 6. Parameter table (initial values, not permanent)
 
-| 키 | 값 | 비고 |
+| Key | Value | Notes |
 |---|---|---|
 | ema_fast / ema_mid / ema_slow | 20 / 50 / 200 | |
 | atr_period | 20 | Wilder |
-| slope_lookback | 5 | EMA50 기울기 |
+| slope_lookback | 5 | EMA50 slope |
 | hedge_bull / neutral / bear | 0.10 / 0.45 / 0.80 | |
 | overbought_atr_mult / adjustment | 2 / +0.10 | |
 | oversold_atr_mult / adjustment | 2 / −0.10 | |
 | regime_confirm_bars | 2 | |
-| risk.max_hedge_ratio | 0.85 | 단일 정의 |
+| risk.max_hedge_ratio | 0.85 | single definition |
 | risk.max_daily_hedge_change | 0.20 | |
 | risk.min_rebalance_diff | 0.10 | |

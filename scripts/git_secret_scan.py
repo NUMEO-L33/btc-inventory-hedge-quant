@@ -35,7 +35,8 @@ ENV_ASSIGN = re.compile(
     re.MULTILINE,
 )
 # What a real value looks like: ASCII credential characters, 16+ long. Placeholders such as
-# "...", "<token>", "발급받은키" or "your_key_here" do not qualify and are left alone.
+# "...", "<token>", a non-ASCII word (e.g. Korean for "the key you were issued") or
+# "your_key_here" do not qualify and are left alone.
 CREDENTIAL_LIKE = re.compile(r"^[A-Za-z0-9_\-:.]{16,}$")
 FORBIDDEN = re.compile(r"(^|/)(\.env(\..*)?|.*\.pem|.*\.key)$")
 ALLOWED_ENV = {".env.example"}

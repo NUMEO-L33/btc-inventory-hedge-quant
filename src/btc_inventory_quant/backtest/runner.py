@@ -154,8 +154,8 @@ def run_backtest(
         market.quality,
         sensitivity=sensitivity,
         notes=[
-            "펀딩 명목가치 공식(계약수×계약가치÷마크가격)은 공식 문서에서 COIN-M 전용 원문을 찾지 못해 PARTIAL 상태이며 Shadow/Testnet 실측으로 역검증 예정.",
-            "슬리피지·부분체결은 모델값이며 실제 체결 품질은 실거래 데이터로 재보정 필요.",
+            "The funding notional formula (contracts × contract value ÷ mark price) is PARTIAL because no COIN-M-specific source text for it was found in the official documentation; it is to be back-verified against measured live Shadow/Testnet data.",
+            "Slippage and partial fills are modelled values; actual execution quality needs to be recalibrated with live trading data.",
         ],
         make_charts=config.backtest.make_charts,
     )

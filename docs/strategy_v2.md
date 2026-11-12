@@ -1,73 +1,73 @@
-# 전략 V2 연구 — 펀딩 가드 (funding guard)
+# Strategy V2 study — funding guard
 
-구현: `src/btc_inventory_quant/data/funding_features.py`, `src/btc_inventory_quant/strategy/funding_guard.py`
-연구 스크립트: `scripts/v2_funding_guard_study.py` → 결과 `reports/v2_funding_guard/`
-파라미터: `configs/*.yaml` → `strategy.funding_guard` (기본 `enabled: false`)
+Implementation: `src/btc_inventory_quant/data/funding_features.py`, `src/btc_inventory_quant/strategy/funding_guard.py`
+Research script: `scripts/v2_funding_guard_study.py` → results in `reports/v2_funding_guard/`
+Parameters: `configs/*.yaml` → `strategy.funding_guard` (default `enabled: false`)
 
-> **결론 먼저**: 펀딩 가드는 "역펀딩 −1bp/8h" 시나리오의 FAIL 을 PASS 로 바꾸는 데 성공했다. 그러나 **실제 과거 데이터에서 얻은 개선분은 펀딩 비용 절감이 아니라 방향성 베팅(우연)이다.** 그리고 이 연구가 부수적으로 확인한 더 중요한 사실은, **동적 레짐 판정(V1)이 정적 고정 헤지보다 나은 근거가 없다**는 것이다. 아래 §6 판정 참조.
+> **Conclusion first**: the funding guard succeeded in turning the FAIL in the "adverse funding −1bp/8h" scenario into a PASS. However, **the improvement it obtained on actual historical data is not a funding-cost saving but a directional bet (luck).** And the more important fact this study confirmed along the way is that **there is no evidence that dynamic regime classification (V1) is better than a static fixed hedge**. See the §6 verdict below.
 
 ---
 
-## 1. 왜 이걸 만들었나 (V1 감사에서 나온 질문)
+## 1. Why this was built (a question raised by the V1 audit)
 
-V1 백테스트의 정직한 해부 결과는 다음과 같았다.
+An honest dissection of the V1 backtest produced the following.
 
-* 순 BTC 증가분의 사실상 전부가 **숏이 받은 펀딩(carry)** 이었다. 타이밍 알파는 관측되지 않았다.
-* 민감도 분석 12개 시나리오 중 **FAIL 을 만든 유일한 시나리오가 "역펀딩"** 이었다 (−1bp/8h 에서 `final_btc` 0.929, −3bp/8h 에서 0.554).
-* 즉 이 전략의 단일 최대 취약점은 방향이 아니라 **캐리 부호가 뒤집히는 것**이다.
+* Practically all of the net BTC gain was **funding received by the short (carry)**. No timing alpha was observed.
+* Of the 12 sensitivity-analysis scenarios, **the only one that produced a FAIL was "adverse funding"** (`final_btc` 0.929 at −1bp/8h, 0.554 at −3bp/8h).
+* In other words, the single biggest vulnerability of this strategy is not direction but **the sign of the carry flipping**.
 
-그래서 V2 1단계는 방향 예측을 개선하는 게 아니라 **비용 규칙(cost rule)** 을 넣는 것으로 정의했다.
+So V2 step 1 was defined not as improving the directional forecast but as adding a **cost rule**.
 
 ```
-직전 lookback_periods 회 정산 펀딩률 평균 < threshold  →  목표 헤지율 × scale,  그리고 max_ratio_when_adverse 로 캡
+mean settled funding rate over the last lookback_periods settlements < threshold  →  target hedge ratio × scale,  and capped at max_ratio_when_adverse
 ```
 
-이건 시장 방향 예측이 아니다. "숏 유지 비용이 마이너스가 되면 숏을 줄인다"는 회계 규칙이다.
+This is not a market-direction forecast. It is an accounting rule: "when the carry on holding the short turns negative, reduce the short".
 
-### 원래 원칙을 침해하지 않는가
+### Does it violate the original principles?
 
-침해하지 않는다. 확인 사항:
+It does not. Checks:
 
-| 원칙 | V2 에서의 상태 |
+| Principle | Status in V2 |
 |---|---|
-| 선물 롱 금지 | 유지 (`raw_target` 을 **줄이기만** 함, `clip(lower=0)`) |
-| 최대 헤지 85% 캡 | 유지 (`RiskLimits` 단일 정의, 가드는 그 아래에서만 동작) |
-| BUY 는 reduce-only, 숏 수량 초과 금지 | 유지 (리스크/실행 계층 변경 없음) |
-| 일 변경 20%p 캡 / 최소 리밸런스 10%p | 유지 (가드는 `raw_target` 만 수정, 파이프라인 하류는 동일) |
-| look-ahead 금지 | 유지 (§2 참조, 인과성 단위 테스트 있음) |
-| Decimal 금액 연산 | 유지 (가드는 지표 계층이라 float, 주문/자산/수수료는 전부 Decimal) |
+| No long futures positions | Kept (the guard only ever **reduces** `raw_target`, `clip(lower=0)`) |
+| 85% maximum hedge cap | Kept (single definition in `RiskLimits`; the guard operates only below it) |
+| BUY is reduce-only, never exceeding the short quantity | Kept (no change to the risk/execution layers) |
+| 20%p daily change cap / 10%p minimum rebalance | Kept (the guard modifies only `raw_target`; everything downstream in the pipeline is unchanged) |
+| No look-ahead | Kept (see §2; causality unit tests exist) |
+| Decimal arithmetic for amounts | Kept (the guard sits in the indicator layer, hence float; orders/equity/fees are all Decimal) |
 
-가드는 **어떤 기반 전략이든 감싸는 데코레이터**(`FundingGuardStrategy(base, params)`)다. 기반 전략을 바꾸지 않으므로 가드의 기여분을 독립적으로 측정할 수 있다 — 그게 2×2 설계의 목적이다.
+The guard is **a decorator that wraps any base strategy** (`FundingGuardStrategy(base, params)`). Because it does not change the base strategy, the guard's contribution can be measured independently — that is the purpose of the 2×2 design.
 
-## 2. 인과성 (look-ahead 방지)
+## 2. Causality (look-ahead prevention)
 
-`build_funding_features()` 는 봉 t 의 피처를 **봉 t 종가 시점까지 실제로 정산된 펀딩만으로** 계산한다.
+`build_funding_features()` computes the features for bar t **using only funding actually settled by the close of bar t**.
 
 ```python
-counts = series.index.searchsorted(closes, side="right")   # closes = 봉 종료 시각
+counts = series.index.searchsorted(closes, side="right")   # closes = bar close times
 start  = np.clip(counts - n, 0, None)
 total  = cumsum[counts] - cumsum[start]
 ```
 
-* 엔진은 봉 t 신호 → 봉 t+1 **시가**에 체결하므로 미래 정보가 들어갈 여지가 없다.
-* `tests/unit/test_funding_features.py::test_features_are_causal` — 미래 데이터를 덧붙여도 과거 봉의 피처가 바뀌지 않음을 검증.
-* `test_settlement_after_bar_close_is_not_visible` — 다음 날 00:00 정산이 전날 봉에 새지 않음을 검증.
-* `tests/simulation/test_trader_simulation.py::test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest` — **라이브 경로와 백테스트 경로가 같은 피처·같은 목표 비율**을 만드는지 검증 (rtol 1e-12 / atol 1e-6). 백테스트에서만 되는 전략을 배포하지 않기 위한 장치다.
+* The engine fills a bar-t signal at the bar t+1 **open**, so there is no room for future information to get in.
+* `tests/unit/test_funding_features.py::test_features_are_causal` — verifies that appending future data does not change the features of past bars.
+* `test_settlement_after_bar_close_is_not_visible` — verifies that the next day's 00:00 settlement does not leak into the previous day's bar.
+* `tests/simulation/test_trader_simulation.py::test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest` — verifies that **the live path and the backtest path produce the same features and the same target ratio** (rtol 1e-12 / atol 1e-6). It is a safeguard against deploying a strategy that only works in the backtest.
 
-## 3. 실험 설계 (사전 등록)
+## 3. Experimental design (pre-registered)
 
-* 2×2: {`fixed_50` 정적 50% 헤지, `regime_v1` 동적 레짐} × {가드 없음, 가드 있음} + `hodl` 벤치마크.
-* 가드 파라미터는 **결과를 보기 전에 하나로 고정**했다: `lookback=21` 정산(≈7일), `threshold=0`, `scale=0.5`, `cap=0.45`. 경제적 근거만으로 정한 값이며 이 결과에 맞춰 튜닝하지 않았다.
-* 평가 구간: 전체 기간 / 사전 등록된 시간순 60·20·20 분할 / 중첩 워크포워드 7 폴드 / 펀딩 레짐 분할.
-* 근방 민감도(lookback 9·21·45 × scale 0.25·0.5·0.75)는 **승자를 고르기 위해서가 아니라** 결과가 칼날 위에 서 있는지 보려고만 출력한다.
+* 2×2: {`fixed_50` static 50% hedge, `regime_v1` dynamic regime} × {no guard, with guard} + `hodl` benchmark.
+* The guard parameters were **fixed to a single setting before looking at any results**: `lookback=21` settlements (≈7 days), `threshold=0`, `scale=0.5`, `cap=0.45`. The values were set on economic grounds alone and were not tuned to these results.
+* Evaluation segments: full period / pre-registered chronological 60·20·20 split / nested walk-forward, 7 folds / funding-regime split.
+* The neighbourhood sensitivity (lookback 9·21·45 × scale 0.25·0.5·0.75) is printed **not to pick a winner**, only to see whether the result is balanced on a knife-edge.
 
-## 4. 결과
+## 4. Results
 
-### 4.1 전체 기간 및 사전 등록 분할 (`reports/v2_funding_guard/splits.csv`)
+### 4.1 Full period and pre-registered splits (`reports/v2_funding_guard/splits.csv`)
 
-| 전략 | 구간 | final_btc | CAGR(USD) | MDD(USD) | 펀딩(BTC) | 거래 | 판정 |
+| Strategy | Segment | final_btc | CAGR(USD) | MDD(USD) | Funding (BTC) | Trades | Verdict |
 |---|---|---:|---:|---:|---:|---:|---|
-| hodl | full | 1.000 | +6.44% | −76.7% | 0 | 0 | 기준 |
+| hodl | full | 1.000 | +6.44% | −76.7% | 0 | 0 | Baseline |
 | fixed_50 | full | 1.2460 | +10.80% | −48.7% | 0.2462 | 11 | PASS |
 | **fixed_50+guard** | full | **1.3650** | **+12.66%** | −52.7% | 0.2465 | 89 | PASS |
 | regime_v1 | full | 1.1085 | +8.46% | −47.1% | 0.1246 | 243 | PASS |
@@ -79,50 +79,50 @@ total  = cumsum[counts] - cumsum[start]
 | regime_v1 | out_of_sample | 1.2372 | −18.3% | −26.7% | 0.0319 | 38 | PASS |
 | regime_v1+guard | out_of_sample | 1.2186 | −19.4% | −31.4% | 0.0332 | 64 | PASS |
 
-**전체 기간에서는 가드가 개선한다. 그러나 가장 최근 OOS 구간에서는 두 기반 전략 모두 가드가 악화시켰다** (1.299→1.269, 1.237→1.219). 검증(validation) 구간의 FAIL 도 그대로다 — 강세장에서 숏은 BTC 를 잃는다는 구조적 사실은 가드로 고쳐지지 않는다.
+**Over the full period the guard improves the result. But in the most recent OOS segment, the guard made both base strategies worse** (1.299→1.269, 1.237→1.219). The FAIL in the validation segment also remains — the structural fact that a short loses BTC in a bull market is not fixed by the guard.
 
-### 4.2 역펀딩 시나리오 — 원래 목적은 달성 (`sensitivity_2x2.csv`)
+### 4.2 Adverse-funding scenarios — the original goal is achieved (`sensitivity_2x2.csv`)
 
-| 시나리오 | fixed_50 | fixed_50+guard | regime_v1 | regime_v1+guard |
+| Scenario | fixed_50 | fixed_50+guard | regime_v1 | regime_v1+guard |
 |---|---:|---:|---:|---:|
 | base | 1.2460 PASS | 1.3650 PASS | 1.1085 PASS | 1.3056 PASS |
-| **역펀딩 −1bp/8h** | **0.9286 FAIL** | **1.0547 PASS** | **0.8461 FAIL** | **1.0149 PASS** |
-| 역펀딩 −3bp/8h | 0.5537 FAIL | 0.6209 FAIL | 0.5001 FAIL | 0.6167 FAIL |
+| **Adverse funding −1bp/8h** | **0.9286 FAIL** | **1.0547 PASS** | **0.8461 FAIL** | **1.0149 PASS** |
+| Adverse funding −3bp/8h | 0.5537 FAIL | 0.6209 FAIL | 0.5001 FAIL | 0.6167 FAIL |
 
-가드는 **명시된 실패 모드를 실제로 고친다** — 단, 완만한 역펀딩(−1bp)까지만. 지속적 −3bp/8h(연 −33%) 환경에서는 두 변형 모두 여전히 FAIL 이다. **이 전략은 장기 역펀딩 체제에서 작동하지 않는다. 가드는 그 한계를 늦출 뿐 없애지 못한다.**
+The guard **does actually fix the stated failure mode** — but only up to mild adverse funding (−1bp). In a sustained −3bp/8h environment (−33% a year), both variants still FAIL. **This strategy does not work in a long-lasting adverse-funding regime. The guard only delays that limit; it cannot remove it.**
 
-### 4.3 그런데 실제 개선분은 펀딩 절감이 아니다 (핵심 반증)
+### 4.3 But the actual improvement is not a funding saving (the key counter-evidence)
 
-가드가 "펀딩 비용을 아껴서" 좋아진 것이라면 `total_funding_btc` 가 유의미하게 늘어야 한다. 늘지 않았다.
+If the guard had improved results "by saving on funding costs", `total_funding_btc` should have risen meaningfully. It did not.
 
-| | Δfinal_btc | Δ펀딩 | Δ수수료 | 잔차(=방향성) |
+| | Δfinal_btc | Δfunding | Δfees | Residual (= directional) |
 |---|---:|---:|---:|---:|
 | fixed_50 → +guard | **+0.1191** | +0.00029 (**0.2%**) | −0.01108 | **+0.1298 (109%)** |
 | regime_v1 → +guard | **+0.1972** | +0.02246 (11.4%) | −0.01435 | **+0.1891 (96%)** |
 
-정적 헤지 기준으로 **개선분의 0.2% 만 펀딩에서 나왔고, 나머지 전부가 가격 경로에서 나왔다.** 그리고 그 방향성은 우연이다 — 가드가 발동한 날들의 정체를 보면 명확하다 (`funding_regime_split.csv`).
+For the static hedge, **only 0.2% of the improvement came from funding; all of the rest came from the price path.** And that directionality is luck — which is clear from what the guard's trigger days actually were (`funding_regime_split.csv`).
 
-| 구간 | 일수 | HODL USD 수익률 | fixed_50 BTC | fixed_50+guard BTC |
+| Segment | Days | HODL USD return | fixed_50 BTC | fixed_50+guard BTC |
 |---|---:|---:|---:|---:|
-| 역펀딩(가드 발동) | 268 | **+80.4%** | −0.2205 | −0.1759 |
-| 정상 펀딩 | 1,734 | −23.3% | +0.6037 | +0.6620 |
+| Adverse funding (guard active) | 268 | **+80.4%** | −0.2205 | −0.1759 |
+| Normal funding | 1,734 | −23.3% | +0.6037 | +0.6620 |
 
-즉 **역펀딩 국면은 과거 데이터에서 대체로 급등장이었다.** 가드는 급등장에 숏을 줄인 것이고, 그래서 성적이 올랐다. 이건 "펀딩 헤지"가 아니라 **역펀딩률을 대용 변수로 쓴 역추세 방향 베팅**이다. 이 상관관계(음수 펀딩 → 이후 상승)가 미래에도 유지된다는 보장은 없다. 실제로 최근 OOS 구간에서는 이미 반대로 작동했다(§4.1).
+In other words, **in the historical data, adverse-funding phases were mostly sharp rallies.** The guard cut the short during rallies, and that is why performance went up. This is not a "funding hedge" but **a counter-trend directional bet that uses the adverse funding rate as a proxy variable**. There is no guarantee that this correlation (negative funding → subsequent rise) will hold in the future. Indeed, in the recent OOS segment it has already worked the other way (§4.1).
 
-### 4.4 강건성 반증 — 신호를 망가뜨릴수록 좋아진다
+### 4.4 Robustness counter-evidence — the more the signal is broken, the better it does
 
-| 시나리오 | fixed_50 | fixed_50+guard | regime_v1+guard |
+| Scenario | fixed_50 | fixed_50+guard | regime_v1+guard |
 |---|---:|---:|---:|
 | base | 1.2460 | 1.3650 | 1.3056 |
-| 신호 1일 지연 | 1.2537 | **1.3930** | **1.4304** |
-| 10회 중 1회 리밸런스 누락 | 1.2445 | **1.4397** | 1.2761 |
-| 50% 부분 체결 | 1.2894 | **1.4819** | **1.4011** |
+| Signal delayed by 1 day | 1.2537 | **1.3930** | **1.4304** |
+| 1 in 10 rebalances skipped | 1.2445 | **1.4397** | 1.2761 |
+| 50% partial fills | 1.2894 | **1.4819** | **1.4011** |
 
-**신호를 하루 늦추고, 리밸런스를 빼먹고, 주문을 절반만 채웠을 때 오히려 성적이 좋아지는 신호는 타이밍 엣지가 아니다.** 정적 `fixed_50` 은 이 교란들에 거의 무반응(설계상 당연)인데, 가드 변형만 크게 흔들린다. 이는 가드의 이득이 소수의 특정 날짜에 의존하는 잡음이라는 직접 증거다.
+**A signal whose performance actually improves when it is delayed by a day, when rebalances are skipped and when orders are only half filled is not a timing edge.** The static `fixed_50` barely reacts to these perturbations (as expected by design), while only the guard variants swing widely. This is direct evidence that the guard's gain is noise that depends on a small number of specific dates.
 
-### 4.5 워크포워드 (7 폴드, `walk_forward.csv`)
+### 4.5 Walk-forward (7 folds, `walk_forward.csv`)
 
-| 전략 | BTC 증가 폴드 | **Wilson 95% CI** | 평균 net_btc_growth | 평균 MDD(USD) |
+| Strategy | Folds with BTC growth | **Wilson 95% CI** | Mean net_btc_growth | Mean MDD(USD) |
 |---|---:|---:|---:|---:|
 | hodl | 0 / 7 | [0.000, 0.354] | 0.0000 | −25.5% |
 | fixed_50 | 2 / 7 | **[0.082, 0.641]** | −0.0459 | −13.5% |
@@ -130,9 +130,9 @@ total  = cumsum[counts] - cumsum[start]
 | regime_v1 | 1 / 7 | **[0.026, 0.513]** | −0.0472 | −16.5% |
 | regime_v1+guard | 1 / 7 | **[0.026, 0.513]** | −0.0442 | −17.2% |
 
-가드는 폴드 승률을 전혀 바꾸지 못했다(2/7 → 2/7, 1/7 → 1/7). 그런데 더 중요한 건 **이 열 자체가 아무것도 말하지 않는다**는 점이다: 헤지 전략 4개의 신뢰구간이 모두 0.5를 포함하므로 어느 것도 동전던지기와 구분되지 않고, 서로 간의 비교도 성립하지 않는다. n=7 은 이런 판정을 내리기에 너무 작다.
+The guard did not change the fold win rate at all (2/7 → 2/7, 1/7 → 1/7). But what matters more is that **this column itself says nothing**: the confidence intervals of all 4 hedge strategies contain 0.5, so none of them can be distinguished from a coin flip, and comparisons between them do not hold either. n=7 is too small to support such a verdict.
 
-### 4.6 근방 민감도 (`guard_sensitivity.csv`, fixed_50 기반)
+### 4.6 Neighbourhood sensitivity (`guard_sensitivity.csv`, fixed_50 base)
 
 | lookback \ scale | 0.25 | 0.50 | 0.75 |
 |---|---:|---:|---:|
@@ -140,79 +140,79 @@ total  = cumsum[counts] - cumsum[start]
 | 21 | **1.6411** | 1.3650 | 1.3589 |
 | 45 | 1.5169 | 1.3038 | 1.3876 |
 
-모두 PASS 이고 모두 기반(1.2460)보다 높다는 점은 위안이 되지만, **scale 방향으로 단조롭지 않다**(0.25 최고, 0.5 최저, 0.75 중간). 진짜 비용 규칙이라면 더 많이 줄일수록 단조롭게 좋아져야 한다. 단조성이 깨진 것은 §4.3~4.4 의 "방향성 잡음" 해석과 일치한다. 그리고 최고점 1.6411(lookback 21 / scale 0.25)은 **평지가 아니라 봉우리**이므로 채택하지 않는다.
+That all of them PASS and all are above the base (1.2460) is reassuring, but **the results are not monotonic along the scale axis** (0.25 best, 0.5 worst, 0.75 in between). A genuine cost rule should improve monotonically the more it cuts. The broken monotonicity is consistent with the §4.3~4.4 "directional noise" interpretation. And the top value of 1.6411 (lookback 21 / scale 0.25) is **a peak, not a plateau**, so it is not adopted.
 
-### 4.7 새 스냅샷(8h 마크가격) 재검증
+### 4.7 Re-validation on the new snapshot (8h mark prices)
 
-§4.1~4.6 의 표는 **8h 마크가격 데이터셋을 받기 전** 스냅샷(`data/raw`)에서 산출됐다. 이후 펀딩 정산 시점 마크가격을 근사에서 실측으로 교체한 뒤(`docs/backtest_methodology.md` §6-2) 동일 실험을 재실행했다(`reports/v2_funding_guard_new/`).
+The tables in §4.1~4.6 were produced from the snapshot taken **before the 8h mark-price dataset was obtained** (`data/raw`). After the mark price at funding-settlement times was switched from an approximation to measured values (`docs/backtest_methodology.md` §6-2), the same experiment was re-run (`reports/v2_funding_guard_new/`).
 
-| 전략 | 전체기간 (구 → 신) | OOS (구 → 신) | 워크포워드 승리 폴드 |
+| Strategy | Full period (old → new) | OOS (old → new) | Walk-forward winning folds |
 |---|---|---|---|
 | fixed_50 | 1.2460 → **1.2446** | 1.2990 → **1.2990** | 2/7 → **2/7** |
 | fixed_50+guard | 1.3650 → **1.3630** | 1.2686 → **1.2686** | 2/7 → **2/7** |
 | regime_v1 | 1.1085 → **1.0977** | 1.2372 → **1.2372** | 1/7 → **1/7** |
 | regime_v1+guard | 1.3056 → **1.2976** | 1.2186 → **1.2186** | 1/7 → **1/7** |
 
-* **OOS 숫자는 소수점 이하까지 완전히 동일**하다. OOS 구간(2023-11 이후)은 원래부터 거래소가 제공한 참값 마크를 쓰고 있었기 때문이며, 이는 배관이 의도대로 동작한다는 검증이기도 하다.
-* 전체 기간은 전 전략이 소폭 하락했다(근사가 펀딩을 과대계상하고 있었음).
-* **판정·워크포워드 승률·정적 vs 동적 순위는 모두 그대로다.** 오히려 정적-동적 격차는 0.1375 → 0.1469 로 **벌어졌다.**
+* **The OOS numbers are identical down to the last decimal place.** This is because the OOS segment (2023-11 onward) was already using the true mark prices supplied by the exchange, and it also verifies that the plumbing works as intended.
+* Over the full period every strategy dropped slightly (the approximation had been overstating funding).
+* **The verdicts, the walk-forward win rates and the static vs dynamic ranking are all unchanged.** If anything, the static–dynamic gap **widened**, 0.1375 → 0.1469.
 
-즉 §6 의 결론은 새 데이터에서도 유지되며, 어느 방향으로도 되돌려 맞춘 것이 없다.
+So the conclusion of §6 holds on the new data as well, and nothing was retrofitted in either direction.
 
-## 5. 사전 등록한 판정 규칙
+## 5. Pre-registered verdict rule
 
-이 문서를 쓰기 전에 약속한 규칙을 그대로 지킨다.
+The rule committed to before this document was written is kept exactly as stated.
 
-> 새 규칙은 **2026-09 이후 신규 OOS** 와 워크포워드로만 판정하고, 기존 OOS 성적을 근거로 되돌려 맞추지 않는다.
+> A new rule is judged only on **new OOS data from 2026-09 onward** and on walk-forward, and is never retrofitted on the basis of existing OOS performance.
 
-따라서 위 전체 기간 성적(1.246 → 1.365)은 **채택 근거로 쓰지 않는다.** 판정에 쓴 것은 (a) 워크포워드 폴드 승률, (b) 최근 OOS 구간, (c) 손익 귀속 분해, (d) 교란 강건성 — 네 가지 모두 가드에 우호적이지 않다.
+Therefore the full-period performance above (1.246 → 1.365) is **not used as grounds for adoption.** What the verdict used is (a) the walk-forward fold win rate, (b) the recent OOS segment, (c) P&L attribution, (d) robustness to perturbations — and none of the four favours the guard.
 
-## 6. 판정
+## 6. Verdict
 
-| 질문 | 답 | 근거 |
+| Question | Answer | Basis |
 |---|---|---|
-| 가드가 명시된 실패 모드(역펀딩)를 고치는가? | **부분적으로 예** | −1bp FAIL→PASS, −3bp 는 여전히 FAIL (§4.2) |
-| 가드의 실제 과거 이득이 펀딩 절감인가? | **아니오** | 이득의 0.2%(정적 기준)만 펀딩 (§4.3) |
-| 가드가 검증되지 않은 방향성 베팅을 도입하는가? | **예** | 발동일 HODL +80.4%, 교란에 취약 (§4.3~4.4) |
-| 가드를 기본값으로 켜는가? | **아니오** | `enabled: false` 유지 |
-| 가드를 코드에 남기는가? | **예** | 역펀딩 체제에 대한 **운영 스위치**로, 아래 §7 조건에서만 |
-| **동적 레짐(V1)이 정적 헤지보다 나은가?** | **아니오** | §6.1 |
+| Does the guard fix the stated failure mode (adverse funding)? | **Partly, yes** | −1bp FAIL→PASS, −3bp still FAIL (§4.2) |
+| Is the guard's actual historical gain a funding saving? | **No** | Only 0.2% of the gain (static basis) is funding (§4.3) |
+| Does the guard introduce an unverified directional bet? | **Yes** | HODL +80.4% on the days it fired, fragile under perturbation (§4.3~4.4) |
+| Is the guard switched on by default? | **No** | `enabled: false` kept |
+| Is the guard kept in the code? | **Yes** | As an **operational switch** for an adverse-funding regime, only under the §7 conditions below |
+| **Is the dynamic regime (V1) better than a static hedge?** | **No** | §6.1 |
 
-### 6.1 이번 연구의 가장 중요한 결과 — 동적 레짐은 값을 더하지 않는다
+### 6.1 The most important result of this study — the dynamic regime adds no value
 
-V2 를 시작하기 전에 제기했던 질문에 대한 답이 나왔다. 정적 `fixed_50` 이 `regime_v1` 을 **모든 축에서** 이긴다.
+The question raised before V2 began now has an answer. The static `fixed_50` beats `regime_v1` **on every axis**.
 
-| 비교 축 | fixed_50 | regime_v1 | 승자 |
+| Comparison axis | fixed_50 | regime_v1 | Winner |
 |---|---:|---:|---|
-| 전체 기간 final_btc | 1.2460 | 1.1085 | **정적** |
-| 전체 기간 CAGR(USD) | +10.80% | +8.46% | **정적** |
-| OOS final_btc | 1.2990 | 1.2372 | **정적** |
-| ~~워크포워드 승리 폴드~~ | ~~2 / 7~~ | ~~1 / 7~~ | **철회 — 아래 참조** |
-| 총 거래 수 (운영 리스크·수수료) | 11 | 243 | **정적** |
-| 가드 적용 후 전체 기간 | 1.3650 | 1.3056 | **정적** |
+| Full-period final_btc | 1.2460 | 1.1085 | **Static** |
+| Full-period CAGR(USD) | +10.80% | +8.46% | **Static** |
+| OOS final_btc | 1.2990 | 1.2372 | **Static** |
+| ~~Walk-forward winning folds~~ | ~~2 / 7~~ | ~~1 / 7~~ | **Withdrawn — see below** |
+| Total trades (operational risk, fees) | 11 | 243 | **Static** |
+| Full period with the guard applied | 1.3650 | 1.3056 | **Static** |
 
-> **⚠️ 근거 1건 철회 (2026-09-02)**: 위 표에서 "워크포워드 승리 폴드 2/7 vs 1/7"을 정적 우위의 근거로 썼다. **잘못이었다.** Wilson 95% 신뢰구간을 붙이면 2/7 = [0.082, **0.641**], 1/7 = [0.026, **0.513**] 으로 두 구간이 거의 완전히 겹치고, 둘 다 0.5를 포함한다 — 즉 **각각이 동전던지기와 구분되지 않으며, 서로 간의 차이도 증거가 아니다.** 7개 표본에서 1개 차이를 근거로 인용한 것은 통계적으로 무의미했다.
+> **⚠️ 1 line of evidence withdrawn (2026-09-02)**: the table above used "walk-forward winning folds 2/7 vs 1/7" as evidence of static superiority. **That was a mistake.** With Wilson 95% confidence intervals attached, 2/7 = [0.082, **0.641**] and 1/7 = [0.026, **0.513**]: the two intervals overlap almost completely, and both contain 0.5 — that is, **neither can be distinguished from a coin flip, and the difference between them is not evidence either.** Citing a difference of 1 across 7 samples as evidence was statistically meaningless.
 >
-> 나머지 4개 축(전체 기간 BTC·CAGR, OOS, 거래 수, 가드 적용 후)은 유효하므로 §6.1 의 **결론 자체는 유지**되지만, 근거는 5개가 아니라 4개다. 이 오류는 외부 검증기 프로젝트의 방법론(Wilson 구간 + 대조군 + family 단위 판정)을 검토하는 과정에서 발견됐다. 이후 이 프로젝트의 모든 승률은 `backtest/statistics.py::wilson_interval` 로 구간과 함께 보고한다.
+> The remaining 4 axes (full-period BTC and CAGR, OOS, trade count, with the guard applied) are valid, so **the conclusion of §6.1 itself stands**, but it is supported by 4 rather than 5 lines of evidence. This error was found while reviewing the methodology of an external validator project (Wilson intervals + control arms + family-level verdicts). From now on, every win rate in this project is reported together with its interval, using `backtest/statistics.py::wilson_interval`.
 
-**EMA/ATR 레짐 분류기는 243회 거래와 22배의 운영 복잡도를 지불하면서 정적 50% 헤지보다 낮은 성과를 냈다.** 이는 이전 감사에서 나온 "베어로 라벨링된 761일 동안 HODL 이 +52.7% 였다"는 관측 — 즉 분류기가 측정 가능하게 오라벨링하고 있다는 사실 — 과 정확히 일치한다.
+**The EMA/ATR regime classifier paid for 243 trades and 22× the operational complexity and still underperformed a static 50% hedge.** This matches exactly the observation from the earlier audit that "HODL returned +52.7% over the 761 days labelled bear" — that is, the fact that the classifier is measurably mislabelling.
 
-**BTC 를 장기 보유하면서 USD 낙폭을 줄이는 목적이라면, 현재 증거가 지지하는 것은 정적 헤지 비율이다.** 동적 조절은 지금의 신호로는 정당화되지 않는다.
+**If the goal is to hold BTC long-term while reducing USD drawdown, what the current evidence supports is a static hedge ratio.** Dynamic adjustment is not justified by the current signals.
 
-## 7. 운영 권고
+## 7. Operational recommendations
 
-1. **기본 설정 유지**: `strategy.funding_guard.enabled: false`. 백테스트 성적을 근거로 켜지 않는다.
-2. **정적 헤지를 기준선으로 취급**한다. `regime_v1` 을 라이브 후보로 승격하지 않는다. 라이브를 논의한다면 `fixed_hedge` 가 출발점이다.
-3. **가드를 켜도 되는 유일한 조건**: 실현된 펀딩이 **실제로** 지속 음수로 전환된 것이 관측될 때(예: 30일 실현 펀딩 합계 < 0 이 2주 이상 지속). 이는 예측이 아니라 관측에 따른 비용 대응이며, 이때 켜는 근거는 §4.2(−1bp 시나리오 복구)이지 §4.1(과거 수익 개선)이 아니다.
-4. **−3bp/8h 수준의 지속 역펀딩에서는 헤지 전략 자체를 중단**한다. 가드로 방어되지 않는다는 것이 측정되었다(§4.2).
-5. 향후 어떤 변경도 이 문서의 §5 규칙을 따른다: 2026-09 이후 신규 데이터로만 판정.
+1. **Keep the default setting**: `strategy.funding_guard.enabled: false`. Do not switch it on based on backtest performance.
+2. **Treat the static hedge as the baseline.** Do not promote `regime_v1` to a live candidate. If going live is discussed, `fixed_hedge` is the starting point.
+3. **The only condition under which the guard may be switched on**: when realised funding is observed to have **actually** turned persistently negative (e.g., the 30-day realised funding sum stays < 0 for 2 weeks or more). This is a cost response to an observation, not a forecast, and the grounds for switching it on at that point are §4.2 (recovery in the −1bp scenario), not §4.1 (improved historical returns).
+4. **Under sustained adverse funding at the −3bp/8h level, stop the hedge strategy itself.** It has been measured that the guard does not protect against this (§4.2).
+5. Any future change follows the §5 rule of this document: judged only on new data from 2026-09 onward.
 
-## 8. 남은 미검증 항목 (정직한 고지)
+## 8. Remaining unverified items (honest disclosure)
 
-* 라이브/데모 거래소 실접속 스모크 테스트 — 미수행.
-* 펀딩 공식의 실측 대조(실제 정산액 vs 모델) — 미수행. 백테스트 펀딩은 공식 문서 기반 모델값이다.
-* Docker 이미지 빌드 — 미수행.
-* 현재 VIP0 수수료율 — 문서값 사용, 계정 실측 미대조.
-* 위 모든 결과는 2020-08-11 ~ 2026-09-01 스냅샷 한 개(2,213 일봉)에 기반한다. 단일 시장 사이클 표본이며, 이 기간의 펀딩–수익률 상관이 미래에 유지된다는 보장은 없다.
+* Smoke test with a real connection to the live/demo exchange — not performed.
+* Measured-live comparison of the funding formula (actual settlement amounts vs the model) — not performed. Backtest funding is a model value based on the official documentation.
+* Docker image build — not performed.
+* Current VIP0 fee rate — documented value used; not checked against the account's measured live rate.
+* All of the results above rest on a single snapshot, 2020-08-11 ~ 2026-09-01 (2,213 daily bars). It is a sample of a single market cycle, and there is no guarantee that this period's funding–return correlation will hold in the future.
 
-**어떤 경우에도 수익을 보장하지 않는다.** 이 문서의 목적은 V2 아이디어가 통했는지를 판정하는 것이었고, 판정은 "명시된 실패 모드는 부분적으로 고쳤으나 수익 개선 주장은 근거가 없으며, 동적 레짐은 기각"이다.
+**No profit is guaranteed under any circumstances.** The purpose of this document was to judge whether the V2 idea worked, and the verdict is: "the stated failure mode was partly fixed, but the claim of improved returns has no basis, and the dynamic regime is rejected".

@@ -53,6 +53,7 @@ storage:
   database_url: sqlite:///state/testnet.sqlite3
 
 monitoring:
-  # shadow/live 와 동일하게 기계 밖으로 나가는 채널을 둔다. testnet 은 실주문을 내므로 조용히
-  # 멈추면 shadow 보다 더 곤란하다. 자격증명(.env)이 없으면 경고만 남기고 로그로 계속 돈다.
+  # As with shadow/live, keep a channel that leaves the machine. testnet places real orders, so a
+  # silent stop is worse than for shadow. Without credentials (.env) it only logs a warning and
+  # keeps running on the log channel.
   alert_channels: [log, telegram]

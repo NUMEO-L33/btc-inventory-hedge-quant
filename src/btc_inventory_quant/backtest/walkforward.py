@@ -22,7 +22,6 @@ from typing import Any
 import pandas as pd
 
 from btc_inventory_quant.backtest.reports import (
-    KOREAN_FONT,
     SERIES,
     StrategyRun,
     _figure,
@@ -534,11 +533,7 @@ def _jsonable(d: dict[str, Any]) -> dict[str, Any]:
 def _chart_walk_forward(wf: WalkForwardResult, path: Path) -> None:
     if wf.oos_daily.empty:
         return
-    fig, ax = _figure(
-        "Walk-forward OOS: 폴드별 재시작 USD 배수 (적응 파라미터 vs 고정 V1 vs HODL)"
-        if KOREAN_FONT
-        else "Walk-forward OOS equity multiples"
-    )
+    fig, ax = _figure("Walk-forward OOS equity multiples")
     for i, (name, daily) in enumerate(
         (("adaptive", wf.oos_daily), ("reference_v1", wf.reference_daily))
     ):
@@ -569,9 +564,7 @@ def _chart_start_dependence(df: pd.DataFrame, path: Path) -> None:
     if df.empty:
         return
     fig, (ax1, ax2) = _figure(
-        "시작일 의존성 (2년 보유, 분기별 시작): 순 BTC 증가 / USD 최대 낙폭"
-        if KOREAN_FONT
-        else "Start-date dependence (2-year horizon): net BTC growth / USD max drawdown",
+        "Start-date dependence (2-year horizon): net BTC growth / USD max drawdown",
         nrows=2,
         height=3.0,
     )
@@ -631,7 +624,9 @@ def _write_research_report(
     grid: pd.DataFrame,
 ) -> None:
     lines: list[str] = []
-    lines.append("# 과최적화 검증 보고서 (Split / Grid / Walk-forward / 시작일 의존성)")
+    lines.append(
+        "# Overfitting validation report (Split / Grid / Walk-forward / start-date dependence)"
+    )
     lines.append("")
     md = summary["metadata"]
     lines.append(
@@ -639,15 +634,15 @@ def _write_research_report(
     )
     b = summary["split_boundaries"]
     lines.append(
-        f"- 시간순 분리: 연구 {b['research'][0]}→{b['research'][1]} / 검증 {b['validation'][0]}→{b['validation'][1]} / OOS {b['out_of_sample'][0]}→{b['out_of_sample'][1]}"
+        f"- Chronological split: research {b['research'][0]}→{b['research'][1]} / validation {b['validation'][0]}→{b['validation'][1]} / OOS {b['out_of_sample'][0]}→{b['out_of_sample'][1]}"
     )
     lines.append(
-        "- 원칙: 무작위 섞기 없음, 파라미터는 연구·훈련 구간에서만 선택, OOS 결과를 보고 파라미터를 되돌려 고치지 않음(이 보고서 이후의 수정은 OOS를 무효화함)."
+        "- Principles: no random shuffling; parameters are selected on the research/training windows only; no going back to revise parameters after seeing the OOS results (any change made after this report invalidates the OOS)."
     )
     lines.append("")
-    lines.append("## 1. 연구 구간 Grid Search (72개 조합, plateau 점수 상위 10)")
+    lines.append("## 1. Research-segment Grid Search (72 combinations, top 10 by plateau score)")
     lines.append("")
-    lines.append("목적함수: " + " ".join(str(summary["grid"]["objective"]).split()))
+    lines.append("Objective: " + " ".join(str(summary["grid"]["objective"]).split()))
     lines.append("")
     cols = [
         *GRID_KEYS,
@@ -674,13 +669,13 @@ def _write_research_report(
     if len(ref):
         lines.append("")
         lines.append(
-            f"- 기준 V1(0.10/0.45/0.85, 확인 2일, 기울기 5일)의 연구 구간 순위: {int(ref.index[0]) + 1} / {len(grid)} (plateau 점수 {float(ref['plateau_score'].iloc[0]):.4f})"
+            f"- Research-segment rank of the reference V1 (0.10/0.45/0.85, 2-day confirmation, 5-day slope): {int(ref.index[0]) + 1} / {len(grid)} (plateau score {float(ref['plateau_score'].iloc[0]):.4f})"
         )
     lines.append("")
-    lines.append("## 2. 구간별 성과 (연구 / 검증 / OOS)")
+    lines.append("## 2. Performance by segment (research / validation / OOS)")
     lines.append("")
     lines.append(
-        "| 구간 | 전략 | 최종 BTC | BTC CAGR | USD CAGR | HODL USD CAGR | HODL 대비 USD | USD MDD | HODL MDD | 거래 | 펀딩 | 판정 |"
+        "| Segment | Strategy | Final BTC | BTC CAGR | USD CAGR | HODL USD CAGR | USD vs HODL | USD MDD | HODL MDD | Trades | Funding | Verdict |"
     )
     lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for _, r in split.iterrows():
@@ -688,10 +683,12 @@ def _write_research_report(
             f"| {r['segment']} | {r['strategy']} | {float(r['final_btc']):.4f} | {_pct(r['cagr_btc'])} | {_pct(r['cagr_usd'])} | {_pct(r['hodl_cagr_usd'])} | {_pct(r['excess_vs_hodl_usd_pct'])} | {_pct(r['max_drawdown_usd'])} | {_pct(r['hodl_max_drawdown_usd'])} | {r['total_trades']} | {float(r['total_funding_btc']):.4f} | {r['verdict']} |"
         )
     lines.append("")
-    lines.append("## 3. Nested Walk-forward (훈련 730일 → 시험 180일, 180일 전진)")
+    lines.append(
+        "## 3. Nested Walk-forward (train 730 days → test 180 days, stepping forward 180 days)"
+    )
     lines.append("")
     lines.append(
-        "| 폴드 | 시험 구간 | 선택 파라미터 (bull/neutral/bear/confirm/slope) | 훈련 점수 | 시험 점수(적응) | 시험 점수(고정 V1) |"
+        "| Fold | Test window | Selected parameters (bull/neutral/bear/confirm/slope) | Train score | Test score (adaptive) | Test score (fixed V1) |"
     )
     lines.append("|---|---|---|---|---|---|")
     for _, r in wf.folds.iterrows():
@@ -700,7 +697,9 @@ def _write_research_report(
             f"| {r['fold']} | {r['test_start']}→{r['test_end']} | {params} | {float(r['train_score']):.4f} | {float(r['test_score_adaptive']):.4f} | {float(r['test_score_reference']):.4f} |"
         )
     lines.append("")
-    lines.append("| 폴드 | 전략 | 최종 BTC | HODL 대비 USD | USD MDD | HODL MDD | 거래 | 판정 |")
+    lines.append(
+        "| Fold | Strategy | Final BTC | USD vs HODL | USD MDD | HODL MDD | Trades | Verdict |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|")
     for _, r in wf.comparisons.iterrows():
         lines.append(
@@ -710,17 +709,17 @@ def _write_research_report(
     s = summary["walk_forward"]
     if s:
         lines.append(
-            f"- 폴드 연결(각 폴드 1 BTC 재시작, 복리) BTC 성장: 적응 {_pct(s.get('adaptive_oos_btc_growth'))} / 고정 V1 {_pct(s.get('reference_oos_btc_growth'))}"
+            f"- Chained folds (each fold restarts at 1 BTC, compounded) BTC growth: adaptive {_pct(s.get('adaptive_oos_btc_growth'))} / fixed V1 {_pct(s.get('reference_oos_btc_growth'))}"
         )
         lines.append(
-            f"- 폴드 연결 USD 성장: 적응 {_pct(s.get('adaptive_oos_usd_growth'))} / 고정 V1 {_pct(s.get('reference_oos_usd_growth'))} / HODL {_pct(s.get('hodl_oos_usd_growth'))}"
+            f"- Chained-fold USD growth: adaptive {_pct(s.get('adaptive_oos_usd_growth'))} / fixed V1 {_pct(s.get('reference_oos_usd_growth'))} / HODL {_pct(s.get('hodl_oos_usd_growth'))}"
         )
         for name in ("adaptive", "reference_v1", "fixed_hedge_50"):
             lines.append(
-                f"- {name}: BTC 증가 폴드 {s.get(f'{name}_folds_btc_positive')}/{s.get('folds')}, HODL(USD) 초과 폴드 {s.get(f'{name}_folds_beat_hodl_usd')}/{s.get('folds')}, 평균 HODL 대비 USD {_pct(s.get(f'{name}_mean_excess_vs_hodl_usd'))}, 평균 BTC 증가 {float(s.get(f'{name}_mean_btc_growth') or 0):+.4f}"
+                f"- {name}: folds with BTC growth {s.get(f'{name}_folds_btc_positive')}/{s.get('folds')}, folds beating HODL (USD) {s.get(f'{name}_folds_beat_hodl_usd')}/{s.get('folds')}, mean USD vs HODL {_pct(s.get(f'{name}_mean_excess_vs_hodl_usd'))}, mean BTC growth {float(s.get(f'{name}_mean_btc_growth') or 0):+.4f}"
             )
     lines.append("")
-    lines.append("## 4. 시작일 의존성 (2년 보유, 91일 간격 시작)")
+    lines.append("## 4. Start-date dependence (2-year holds, start dates 91 days apart)")
     lines.append("")
     for name in ("regime_hedge_v1", "fixed_hedge_50"):
         sub = start_dep[start_dep["strategy"] == name]
@@ -728,23 +727,23 @@ def _write_research_report(
             btc = sub["net_btc_growth"].astype(float)
             usd = sub["excess_vs_hodl_usd_pct"].astype(float)
             lines.append(
-                f"- {name}: 시작일 {len(sub)}개 중 BTC 증가 {(btc > 0).sum()}개, HODL(USD) 초과 {(usd > 0).sum()}개; BTC 증가 중앙값 {btc.median():+.4f} (최소 {btc.min():+.4f}, 최대 {btc.max():+.4f}); HODL 대비 USD 중앙값 {usd.median():+.2%} (최소 {usd.min():+.2%}, 최대 {usd.max():+.2%})"
+                f"- {name}: of {len(sub)} start dates, BTC grew in {(btc > 0).sum()} and HODL (USD) was beaten in {(usd > 0).sum()}; median BTC growth {btc.median():+.4f} (min {btc.min():+.4f}, max {btc.max():+.4f}); median USD vs HODL {usd.median():+.2%} (min {usd.min():+.2%}, max {usd.max():+.2%})"
             )
     lines.append("")
     lines.append("![walk_forward](charts/walk_forward_oos_equity.png)")
     lines.append("")
     lines.append("![start_date](charts/start_date_dependence.png)")
     lines.append("")
-    lines.append("## 5. 해석 지침")
+    lines.append("## 5. Interpretation guidelines")
     lines.append("")
     lines.append(
-        "- 적응 파라미터가 고정 V1보다 OOS에서 꾸준히 낫지 않으면 그리드 탐색은 과최적화 위험만 키운다 → 고정 파라미터 유지."
+        "- If the adaptive parameters are not consistently better than the fixed V1 out of sample, the grid search only adds overfitting risk → keep the fixed parameters."
     )
     lines.append(
-        "- 폴드 절반 이상에서 BTC가 줄거나 HODL(USD) 대비 열위면 전략의 타이밍 알파는 없다고 본다(펀딩 캐리만 남음)."
+        "- If BTC shrinks or the strategy trails HODL (USD) in half or more of the folds, the strategy is taken to have no timing alpha (only the funding carry remains)."
     )
     lines.append(
-        "- 시작일에 따라 결과 부호가 뒤집히면 성과는 특정 구간(예: 2022 하락장)에 의존한다."
+        "- If the sign of the result flips depending on the start date, the performance depends on a specific period (e.g. the 2022 bear market)."
     )
     path.write_text("\n".join(lines), encoding="utf-8")
 

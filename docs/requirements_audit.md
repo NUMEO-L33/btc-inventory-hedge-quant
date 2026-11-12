@@ -1,193 +1,193 @@
-# 요구사항 추적 매트릭스 (Requirements Audit)
+# Requirements Traceability Matrix (Requirements Audit)
 
-작성일 2026-09-02. 원 요구사항(21개 절)의 항목별 구현 상태를 코드·테스트 근거와 함께 기록한다.
-상태: ✅ 구현+자동 테스트 / 🟢 구현(테스트는 상위 테스트로 간접 검증) / 🟡 부분 구현 또는 문서상 한계 / ❌ 미구현.
+Written 2026-09-02. Records the implementation status of each item of the original requirements (21 sections), with evidence from code and tests.
+Status: ✅ implemented + automated test / 🟢 implemented (verified indirectly by higher-level tests) / 🟡 partially implemented or documented limitation / ❌ not implemented.
 
-> 이 매트릭스는 "한 번에 진행하며 느슨해진 부분이 없는가"라는 검토 요청에 따라 작성되었고, 감사에서 발견된 누락 7건(WebSocket, Shadow 펀딩, 시작 즉시 판단, 지표 미기입, 통합 테스트 부재, 문서 불일치, API 권한 검증 범위)은 아래에 **[감사 후 보강]** 으로 표시했다.
+> This matrix was written in response to a review request asking "did anything get sloppy from doing it all in one pass?", and the 7 omissions found in the audit (WebSocket, Shadow funding, immediate decision at startup, unpopulated metrics, missing integration tests, documentation mismatches, scope of API permission verification) are marked below as **[added after audit]**.
 
-## §1 전략의 경제적 구조
-| 항목 | 상태 | 근거 |
+## §1 Economic structure of the strategy
+| Item | Status | Evidence |
 |---|---|---|
-| BTC 기본 자산, COIN-M 숏으로 0~85% 헤지 | ✅ | `risk/limits.py`, `execution/rebalancer.py`, `test_risk_limits_config.py` |
-| 100% 헤지 = 합성 달러 구조 | ✅ | `test_inverse_math.py::test_case_1/2`, `test_backtest_engine.py::test_case_1_and_2_reproduced_by_engine` |
-| ON/OFF 아닌 점진 조절 | ✅ | 일 20%p 캡·10%p 최소차 (`test_daily_cap_and_min_diff_are_enforced`) |
+| BTC as the base asset, 0–85% hedge with a COIN-M short | ✅ | `risk/limits.py`, `execution/rebalancer.py`, `test_risk_limits_config.py` |
+| 100% hedge = synthetic dollar structure | ✅ | `test_inverse_math.py::test_case_1/2`, `test_backtest_engine.py::test_case_1_and_2_reproduced_by_engine` |
+| Gradual adjustment rather than ON/OFF | ✅ | 20pp daily cap, 10pp minimum difference (`test_daily_cap_and_min_diff_are_enforced`) |
 
-## §2 Inverse 계약 수학
-| 항목 | 상태 | 근거 |
+## §2 Inverse contract math
+| Item | Status | Evidence |
 |---|---|---|
-| PnL / 미실현 / 목표 명목 / 목표 계약수 / 유효 헤지율 공식 | ✅ | `domain/inverse_contract.py`, `test_inverse_math.py` |
-| 계약 사양을 코드에 고정하지 않음 | ✅ | `ContractSpec.from_exchange_info_symbol`, `data/repositories.py::load_contract_spec`, 런타임 `adapter.contract_spec` + `CONTRACT_SPEC_CHANGED` 가드 |
-| 주문·자산·수수료·계약수·펀딩은 Decimal | ✅ | 도메인 전 모듈 Decimal; 지표만 float |
-| 테스트 1~4 | ✅ | `test_case_1_price_halves…`, `test_case_2…`, `test_case_3_85pct…`, `test_case_4_buy_exceeding_short…` |
+| Formulas for PnL / unrealized / target notional / target contract count / effective hedge ratio | ✅ | `domain/inverse_contract.py`, `test_inverse_math.py` |
+| Contract specification not hardcoded | ✅ | `ContractSpec.from_exchange_info_symbol`, `data/repositories.py::load_contract_spec`, runtime `adapter.contract_spec` + `CONTRACT_SPEC_CHANGED` guard |
+| Orders, assets, fees, contract counts and funding in Decimal | ✅ | Decimal in every domain module; float for indicators only |
+| Tests 1–4 | ✅ | `test_case_1_price_halves…`, `test_case_2…`, `test_case_3_85pct…`, `test_case_4_buy_exceeding_short…` |
 
-## §3 초기 전략 V1
-| 항목 | 상태 | 근거 |
+## §3 Initial strategy V1
+| Item | Status | Evidence |
 |---|---|---|
-| 일봉·UTC·완결 캔들만 | ✅ | `data/market_data.py`(close_time < as_of), `runtime/trader.py::completed_candles`, `test_incomplete_last_candle_is_dropped` |
+| Daily bars, UTC, completed candles only | ✅ | `data/market_data.py` (close_time < as_of), `runtime/trader.py::completed_candles`, `test_incomplete_last_candle_is_dropped` |
 | EMA20/50/200, ATR20 | ✅ | `indicators/`, `test_indicators_are_causal` |
-| 상승/하락/중립 판정 규칙 | ✅ | `strategy/regime_hedge.py`, `test_regime_rules_on_trends` |
-| 기본 헤지율 10/45/80 | ✅ | `RegimeHedgeParams` 기본값(설정 파일로 변경) |
-| 과열 +10%p / 과매도 반등 −10%p / 0~85% | ✅ | `test_overbought_and_oversold_adjustments`, clamp |
-| 2봉 확인 | ✅ | `strategy/state_machine.py`, `test_state_machine_requires_two_bars` |
-| 일 20%p, 10%p 미만 무거래, 롱 금지, BUY reduce-only, BUY ≤ 숏, 롱 전환 금지 | ✅ | `risk/limits.py`, `domain/position.py`, `test_never_long_and_buy_never_exceeds_short` |
-| 파라미터는 초기값·이후 연구 | ✅ | `docs/strategy_spec.md` §6, 4단계 그리드 결과 |
+| Bull/bear/neutral classification rules | ✅ | `strategy/regime_hedge.py`, `test_regime_rules_on_trends` |
+| Base hedge ratios 10/45/80 | ✅ | `RegimeHedgeParams` defaults (changed via the config file) |
+| Overheated +10pp / oversold bounce −10pp / 0–85% | ✅ | `test_overbought_and_oversold_adjustments`, clamp |
+| 2-bar confirmation | ✅ | `strategy/state_machine.py`, `test_state_machine_requires_two_bars` |
+| 20pp per day, no trade below 10pp, no longs, BUY reduce-only, BUY ≤ short, no flip to long | ✅ | `risk/limits.py`, `domain/position.py`, `test_never_long_and_buy_never_exceeds_short` |
+| Parameters are initial values, subject to later research | ✅ | `docs/strategy_spec.md` §6, grid results from stage 4 |
 
-## §4 백테스트 원칙
-| 항목 | 상태 | 근거 |
+## §4 Backtest principles
+| Item | Status | Evidence |
 |---|---|---|
-| look-ahead 금지, 다음 캔들 시가 체결 | ✅ | `backtest/engine.py`, `test_signal_executes_on_next_open_never_same_candle`, `test_truncating_future_data_does_not_change_the_past` |
-| 체결가/마크/인덱스/펀딩/사양/수수료 데이터 분리 | ✅ | `data/market_data.py`(trade·mark·index), `funding_data.py`, `exchange_info.json`, `CostModelConfig` |
-| 펀딩·수수료 공식 공식 문서 확인 | ✅ | 수수료 VERIFIED(공식 예시 검산). 펀딩 "÷Mark Price" 는 원문 미발견이나 **2026-09-04 실제 정산 대조로 VERIFIED(±8.12%)** — `verify-funding`, `docs/inverse_math.md` §6 |
-| 계약 사양 변경 이력 | 🟡 | 확인 불가 → 현재 사양 고정, `docs/backtest_methodology.md` §7 한계 명시 |
-| Maker/Taker/슬리피지/펀딩/부분체결/미체결 재주문/반올림 | ✅ | `execution_model.py`, `funding_model.py`, `test_missed_rebalance_and_partial_fill_scenarios`, `test_target_contracts_floors…` |
-| 보수적 Taker 기본 | ✅ | `use_maker: false` |
-| 민감도 7종(수수료×2, 슬리피지×3, 불리한 펀딩, 1일 지연, 주문 누락 …) | ✅ | `backtest/scenarios.py`, `reports/v1_reference/sensitivity.csv` |
+| No look-ahead; fills at the next candle's open | ✅ | `backtest/engine.py`, `test_signal_executes_on_next_open_never_same_candle`, `test_truncating_future_data_does_not_change_the_past` |
+| Separate data for trade price / mark / index / funding / spec / fees | ✅ | `data/market_data.py` (trade·mark·index), `funding_data.py`, `exchange_info.json`, `CostModelConfig` |
+| Funding and fee formulas checked against the official docs | ✅ | Fees VERIFIED (cross-checked against the official example). For funding, "÷Mark Price" has not been found in the official text, but it is **VERIFIED (±8.12%) by comparison with an actual settlement on 2026-09-04** — `verify-funding`, `docs/inverse_math.md` §6 |
+| Contract specification change history | 🟡 | Cannot be checked → current spec held fixed, limitation stated in `docs/backtest_methodology.md` §7 |
+| Maker/Taker/slippage/funding/partial fills/re-placing unfilled orders/rounding | ✅ | `execution_model.py`, `funding_model.py`, `test_missed_rebalance_and_partial_fill_scenarios`, `test_target_contracts_floors…` |
+| Conservative Taker default | ✅ | `use_maker: false` |
+| 7 sensitivity scenarios (fees ×2, slippage ×3, adverse funding, 1-day delay, missed orders …) | ✅ | `backtest/scenarios.py`, `reports/v1_reference/sensitivity.csv` |
 
-## §5 비교 기준
-| 항목 | 상태 | 근거 |
+## §5 Benchmarks
+| Item | Status | Evidence |
 |---|---|---|
-| HODL / 100% / 50% / EMA200 / 동적 | ✅ | `strategy/benchmarks.py`, `backtest/runner.py::default_benchmarks` |
-| 보고 지표 21종 (시작·최종 BTC … 상승/하락/횡보별) | ✅ | `backtest/metrics.py::summarize` (regime_performance 포함), `benchmark_comparison.csv` |
-| BTC 증가·USD 붕괴 → 실패 판정 | ✅ | `metrics.verdict` (FAIL/WEAK/PASS), 검증구간 FAIL 그대로 보고 |
-| 나쁜 결과 은폐·임의 파라미터 변경 금지 | ✅ | 4단계 보고서에 FAIL 폴드·시작일 전부 기록, OOS 후 파라미터 변경 없음 |
+| HODL / 100% / 50% / EMA200 / dynamic | ✅ | `strategy/benchmarks.py`, `backtest/runner.py::default_benchmarks` |
+| 21 reported metrics (starting and final BTC … by bull/bear/sideways market) | ✅ | `backtest/metrics.py::summarize` (including regime_performance), `benchmark_comparison.csv` |
+| BTC grows but USD collapses → failure verdict | ✅ | `metrics.verdict` (FAIL/WEAK/PASS); the validation-period FAIL is reported as is |
+| No hiding of bad results, no arbitrary parameter changes | ✅ | The stage 4 report records every FAIL fold and start date; no parameter changes after OOS |
 
-## §6 과최적화 방지
-| 항목 | 상태 | 근거 |
+## §6 Overfitting prevention
+| Item | Status | Evidence |
 |---|---|---|
-| 시간순 60/20/20 + Walk-forward | ✅ | `backtest/walkforward.py`, `test_folds_are_chronological_and_non_overlapping_tests` |
-| 제한 Grid, Nested WF, 파라미터 최소화, plateau 선호 | ✅ | 72조합, `neighbourhood_scores`, `test_neighbourhood_scores_average_adjacent_combos` |
-| 특정 장세 집중 확인 | ✅ | 시작일 의존성·상태별 성과 (`research_report.md` §4, §2) |
-| 실험 설정·결과 파일 저장, seed, 실행시각·코드버전·설정 해시 | ✅ | `config/loader.py::RunMetadata`, `research_summary.json`, `summary.json` |
-| ML 제외 | ✅ | — |
+| Chronological 60/20/20 + Walk-forward | ✅ | `backtest/walkforward.py`, `test_folds_are_chronological_and_non_overlapping_tests` |
+| Limited Grid, Nested WF, parameter minimisation, plateau preference | ✅ | 72 combinations, `neighbourhood_scores`, `test_neighbourhood_scores_average_adjacent_combos` |
+| Check for concentration in particular market conditions | ✅ | Start-date dependence and per-regime performance (`research_report.md` §4, §2) |
+| Experiment configs and result files saved, seed, run time, code version, config hash | ✅ | `config/loader.py::RunMetadata`, `research_summary.json`, `summary.json` |
+| ML excluded | ✅ | — |
 
-## §7 자산 회계·원장
-| 항목 | 상태 | 근거 |
+## §7 Asset accounting and ledger
+| Item | Status | Evidence |
 |---|---|---|
-| 항목 분리 기록(시작 BTC, 입출금, 잔액, 실현, 미실현, 수수료, 펀딩, Equity BTC/USD, 계약수, 평균가, 마크, 목표/실제 헤지율·오차, 주문·체결 이력) | ✅ | `domain/ledger.py`, `domain/portfolio.py::snapshot`, `storage/models.py`(orders, fills, ledger, snapshots, decisions) |
-| 입출금을 수익으로 계산하지 않음 | ✅ | `Ledger.net_btc_growth`, `test_external_flows_are_not_trading_pnl`, `test_unexpected_deposit_is_flagged_and_not_counted_as_pnl` |
-| Inverse 평균 진입가(비산술), lot 회계 | ✅ | 조화평균 `combine_entry_price`, FIFO lot 감사 `test_full_close_lot_pnl_equals_average_pnl` |
-| 공식 거래소 결과와 비교 테스트 | 🟡 | 수수료·명목가치는 공식 예시로 검산; 평균가는 공식 예시 부재 → Testnet 에서 `positionRisk.entryPrice` 와 0.1% 허용오차 비교(`Reconciler.compare`) |
+| Items recorded separately (starting BTC, deposits/withdrawals, balance, realized, unrealized, fees, funding, Equity BTC/USD, contract count, average price, mark, target/actual hedge ratio and error, order and fill history) | ✅ | `domain/ledger.py`, `domain/portfolio.py::snapshot`, `storage/models.py` (orders, fills, ledger, snapshots, decisions) |
+| Deposits/withdrawals not counted as profit | ✅ | `Ledger.net_btc_growth`, `test_external_flows_are_not_trading_pnl`, `test_unexpected_deposit_is_flagged_and_not_counted_as_pnl` |
+| Inverse average entry price (non-arithmetic), lot accounting | ✅ | Harmonic mean `combine_entry_price`, FIFO lot audit `test_full_close_lot_pnl_equals_average_pnl` |
+| Tests comparing against official exchange results | 🟡 | Fees and notional value cross-checked against official examples; no official example exists for the average price → compared on Testnet against `positionRisk.entryPrice` with a 0.1% tolerance (`Reconciler.compare`) |
 
-## §8 실거래 구조
-| 항목 | 상태 | 근거 |
+## §8 Live trading architecture
+| Item | Status | Evidence |
 |---|---|---|
-| Strategy → Portfolio → Risk → Execution → Adapter 분리 | ✅ | 패키지 구조, 전략 코드에 거래소 import 없음 |
-| Binance COIN-M 어댑터, 최신 공식 문서 우선 | ✅ | `exchange/binance_coinm.py`, `docs/exchange_api_verification.md`(2026-06 통합 반영) |
-| 미검증 엔드포인트 추정 금지, 미검증 항목 명시 | ✅ | UNVERIFIED 항목은 코드에서 미사용(예: SAPI 권한 조회), 문서 §15 표 |
-| 제3자 라이브러리 검증 | ✅ | 자체 어댑터 + 공식 예시 payload 테스트 (`test_binance_adapter.py`) |
+| Strategy → Portfolio → Risk → Execution → Adapter separation | ✅ | Package structure; no exchange imports in strategy code |
+| Binance COIN-M adapter, latest official docs take precedence | ✅ | `exchange/binance_coinm.py`, `docs/exchange_api_verification.md` (reflects the 2026-06 integration) |
+| No guessing at unverified endpoints, unverified items stated explicitly | ✅ | UNVERIFIED items are not used in code (e.g. SAPI permission query); table in §15 of that doc |
+| Third-party library verification | ✅ | In-house adapter + tests on official example payloads (`test_binance_adapter.py`) |
 
-## §9 운영 모드
-| 항목 | 상태 | 근거 |
+## §9 Operating modes
+| Item | Status | Evidence |
 |---|---|---|
 | backtest / shadow / testnet / live | ✅ | `runtime/app.py::run_mode`, `configs/*.yaml` |
-| Live 조건 11개 전부 | ✅ | `runtime/live_gate.py`, `test_live_gate_requires_every_condition` |
-| API 키 권한 검증 | 🟡 | `account.canTrade` 확인. **출금 권한 여부는 COIN-M API 로 조회 불가**(SAPI 는 미검증 범위) → 운영 Runbook 수동 확인 항목 |
-| 실행 즉시 실주문 금지 | ✅ | 게이트 실패 시 읽기 전용, CLI 실행 검증(`live.example.yaml` → 12개 실패 항목 출력) |
+| All 11 Live conditions | ✅ | `runtime/live_gate.py`, `test_live_gate_requires_every_condition` |
+| API key permission verification | 🟡 | `account.canTrade` is checked. **Whether withdrawal permission is enabled cannot be queried through the COIN-M API** (SAPI is within the unverified scope) → manual check item in the operations Runbook |
+| No real orders immediately on launch | ✅ | Read-only if the gate fails; verified by running the CLI (`live.example.yaml` → prints 12 failed items) |
 
-## §10 계좌·리스크 제한
-| 항목 | 상태 | 근거 |
+## §10 Account and risk limits
+| Item | Status | Evidence |
 |---|---|---|
-| 서브계정·출금 금지·IP 화이트리스트·One-way·Cross 권장 | 🟢 | `docs/risk_management.md` §2, 런타임 One-way/margin/leverage 가드 |
-| 유효 헤지율 기준 통제, 85%/0%/20%p/10%p, 롱·마틴게일·물타기·레버리지>1·명목>자산 금지, 미확인 포지션 시 주문 금지 | ✅ | `RiskLimits` 단일 정의, `validate_order_against_position`, `DuplicateRiskError`, reconciliation |
-| 85% 중복 하드코딩 금지 | ✅ | `grep -rn "0.85" src` → `config/schema.py` 기본값 1곳 |
+| Sub-account, withdrawals disabled, IP whitelist, One-way, Cross recommended | 🟢 | `docs/risk_management.md` §2, runtime One-way/margin/leverage guards |
+| Control based on the effective hedge ratio, 85%/0%/20pp/10pp, no longs / martingale / averaging down / leverage>1 / notional>assets, no orders while the position is unconfirmed | ✅ | Single definition in `RiskLimits`, `validate_order_against_position`, `DuplicateRiskError`, reconciliation |
+| No duplicated hardcoding of 85% | ✅ | `grep -rn "0.85" src` → 1 place, the default in `config/schema.py` |
 
-## §11 주문 실행 안전장치
-| 항목 | 상태 | 근거 |
+## §11 Order execution safeguards
+| Item | Status | Evidence |
 |---|---|---|
-| 고유 client order ID | ✅ | `OrderManager.new_client_order_id` (regex/36자 준수) |
-| 타임아웃 → 재전송 금지 → 조회 → **User Data Stream 확인** → 접수 여부 → 미접수 시만 재시도 | ✅ **[감사 후 보강]** | `resolve_uncertain`(REST -2013 2회 + 스트림 이벤트 없음일 때만 NOT_PLACED), `exchange/binance_ws.py::UserDataStream`, `test_lost_response_after_acceptance_does_not_duplicate`, `test_timeout_before_acceptance…` |
-| idempotency / 부분체결 / 미체결 취소 / 중복 방지 / 재시작 복구 / reconciliation | ✅ | `test_order_manager.py` 11개, `test_restart_recovers_position_and_continues` |
-| 네트워크 재연결 | ✅ **[감사 후 보강]** | REST 백오프 + WS 자동 재연결(`test_user_data_stream_reconnects_after_disconnect…`) |
-| Rate limit / 지수 backoff / 시간 오차 / 응답 검증 | ✅ | `test_rate_limit_backoff_and_ban`, `test_timestamp_error_resyncs…`, `_request_list` 타입 검증 |
-| 반대 방향 주문 방지 / BUY reduce-only / 주문 후 포지션 재확인 | ✅ | `BUY_EXCEEDS_SHORT`, `PaperExchange` reduce-only 강제, `Trader._execute` post-trade 검증 |
-| 실행 정책 인터페이스(Market / Maker-first / TWAP) | ✅ | `execution/policies.py`, 정책별 테스트 |
+| Unique client order ID | ✅ | `OrderManager.new_client_order_id` (regex / 36-char limit respected) |
+| Timeout → no resend → query → **check User Data Stream** → accepted or not → retry only if not accepted | ✅ **[added after audit]** | `resolve_uncertain` (NOT_PLACED only on REST -2013 from 2 queries + no stream event), `exchange/binance_ws.py::UserDataStream`, `test_lost_response_after_acceptance_does_not_duplicate`, `test_timeout_before_acceptance…` |
+| idempotency / partial fills / cancelling unfilled orders / duplicate prevention / restart recovery / reconciliation | ✅ | 11 tests in `test_order_manager.py`, `test_restart_recovers_position_and_continues` |
+| Network reconnection | ✅ **[added after audit]** | REST backoff + automatic WS reconnection (`test_user_data_stream_reconnects_after_disconnect…`) |
+| Rate limit / exponential backoff / clock skew / response validation | ✅ | `test_rate_limit_backoff_and_ban`, `test_timestamp_error_resyncs…`, type validation in `_request_list` |
+| Preventing opposite-direction orders / BUY reduce-only / re-checking the position after an order | ✅ | `BUY_EXCEEDS_SHORT`, reduce-only enforced in `PaperExchange`, post-trade verification in `Trader._execute` |
+| Execution policy interface (Market / Maker-first / TWAP) | ✅ | `execution/policies.py`, per-policy tests |
 
-## §12 장애 대응
-| 트리거 | 상태 | 근거 |
+## §12 Failure handling
+| Trigger | Status | Evidence |
 |---|---|---|
-| Fail-safe 7단계(청산 금지, 포지션 유지) | ✅ | `Trader._engage`, `KillSwitch`, `test_position_mismatch_engages_safe_hold_and_keeps_position` |
-| 가격/마크 stale | ✅ | `check_mark_freshness`, `check_candle_freshness`, `test_stale_mark_price_blocks_trading` |
-| WebSocket 장시간 중단 | ✅ **[감사 후 보강]** | `check_stream_silence` (`ws_max_silence_seconds`) |
-| REST vs WS 포지션 불일치 | ✅ **[감사 후 보강]** | `check_ws_position` (ACCOUNT_UPDATE `pa` vs positionRisk) |
-| 거래소 vs DB 불일치 / 미지 주문 / 숏>한도 / BUY>숏 / 롱 / 잔액 / 반복 거부 / 시간 오차 / 사양 변경 / 유지증거금 / 예상외 입출금 | ✅ | `risk/guards.py`, `execution/reconciliation.py`, 시뮬레이션 테스트 |
+| 7-step fail-safe (no close-out, position kept) | ✅ | `Trader._engage`, `KillSwitch`, `test_position_mismatch_engages_safe_hold_and_keeps_position` |
+| Stale price/mark | ✅ | `check_mark_freshness`, `check_candle_freshness`, `test_stale_mark_price_blocks_trading` |
+| Prolonged WebSocket outage | ✅ **[added after audit]** | `check_stream_silence` (`ws_max_silence_seconds`) |
+| REST vs WS position mismatch | ✅ **[added after audit]** | `check_ws_position` (ACCOUNT_UPDATE `pa` vs positionRisk) |
+| Exchange vs DB mismatch / unknown orders / short>limit / BUY>short / long / balance / repeated rejections / clock skew / spec change / maintenance margin / unexpected deposits/withdrawals | ✅ | `risk/guards.py`, `execution/reconciliation.py`, simulation tests |
 
-## §13 기술 스택
-| 항목 | 상태 | 근거 |
+## §13 Tech stack
+| Item | Status | Evidence |
 |---|---|---|
-| Python 3.12, Pydantic Settings, HTTPX, WebSocket client, pandas/NumPy, SQLAlchemy, PostgreSQL/SQLite, Alembic, Pytest, Ruff, Mypy, Docker, Compose, JSON 로깅 | ✅ | `pyproject.toml`, `alembic.ini`+`migrations/`, `Dockerfile`, `docker-compose.yml`; websockets 는 **[감사 후 보강]** 으로 실제 사용 |
-| Docker 이미지 빌드 검증 | 🟡 | 개발 환경에 Docker 데몬 없음 → 빌드 미검증(구문만 확인) |
-| 코드 영어 / 문서 한국어 / 키 미커밋 / .env.example / 로그 마스킹 | ✅ | `.gitignore`, `.env.example`, `monitoring/logging.py`, `test_logging_masks_secrets` |
+| Python 3.12, Pydantic Settings, HTTPX, WebSocket client, pandas/NumPy, SQLAlchemy, PostgreSQL/SQLite, Alembic, Pytest, Ruff, Mypy, Docker, Compose, JSON logging | ✅ | `pyproject.toml`, `alembic.ini`+`migrations/`, `Dockerfile`, `docker-compose.yml`; websockets actually used, **[added after audit]** |
+| Docker image build verification | 🟡 | No Docker daemon in the development environment → build unverified (syntax checked only) |
+| Code in English / docs in Korean (all docs translated to English on 2026-11-12 at the owner's request) / keys not committed / .env.example / log masking | ✅ | `.gitignore`, `.env.example`, `monitoring/logging.py`, `test_logging_masks_secrets` |
 
-## §14 프로젝트 구조
-| 항목 | 상태 | 근거 |
+## §14 Project structure
+| Item | Status | Evidence |
 |---|---|---|
-| 요구 디렉터리·파일 | ✅ | 요구 목록과 동일 + `runtime/`, `backtest/{runner,scenarios,walkforward}.py`, `exchange/{paper,binance_ws}.py` 추가; `docs/architecture.md` 목록 실제와 일치하도록 수정 **[감사 후 보강]** |
-| 기존 코드 보존 | — | 기존 저장소 없음(빈 작업공간) |
+| Required directories and files | ✅ | Same as the required list, plus `runtime/`, `backtest/{runner,scenarios,walkforward}.py`, `exchange/{paper,binance_ws}.py`; the listing in `docs/architecture.md` corrected to match the actual tree **[added after audit]** |
+| Preserve existing code | — | No existing repository (empty workspace) |
 
 ## §15 CLI
-| 명령 | 상태 |
+| Command | Status |
 |---|---|
-| backtest / shadow / testnet / live --confirm-live / status / reconcile / safe-hold | ✅ (`test_cli_parser_exposes_all_commands`, 실행 검증) |
-| 추가: research walk-forward/sensitivity, data download/verify/quality | ✅ |
+| backtest / shadow / testnet / live --confirm-live / status / reconcile / safe-hold | ✅ (`test_cli_parser_exposes_all_commands`, verified by running) |
+| Additional: research walk-forward/sensitivity, data download/verify/quality | ✅ |
 
-## §16 모니터링
-| 항목 | 상태 | 근거 |
+## §16 Monitoring
+| Item | Status | Evidence |
 |---|---|---|
-| 지표 22종 | ✅ **[감사 후 보강]** | `monitoring/metrics.py::MetricsSnapshot`; `last_price`(ticker/price), `daily_pnl_btc/usd`, `websocket_connected` 기입 추가 |
-| 즉시 알림 11종 | ✅ | order_submitting/filled/partial/failed, safe_hold_engaged(불일치·한도·데이터·WS·입출금·롱 위험 포함), system_start/stop, live_gate |
-| 부분체결 장기 지속 | 🟡 | 정책 종료 시 미체결 잔량 알림(`order_partial`); Maker-first 대기시간은 `maker_wait_seconds` 로 상한 |
-| Telegram/Email, 알림 장애가 거래를 중단시키지 않음 | ✅ | `monitoring/alerts.py`(스레드 격리·예외 흡수) |
+| 22 metrics | ✅ **[added after audit]** | `monitoring/metrics.py::MetricsSnapshot`; added population of `last_price` (ticker/price), `daily_pnl_btc/usd`, `websocket_connected` |
+| 11 immediate alerts | ✅ | order_submitting/filled/partial/failed, safe_hold_engaged (covering mismatch, limits, data, WS, deposits/withdrawals, long risk), system_start/stop, live_gate |
+| Prolonged partial fill | 🟡 | Alert on the unfilled remainder when the policy ends (`order_partial`); Maker-first wait time capped by `maker_wait_seconds` |
+| Telegram/Email, alerting failures do not halt trading | ✅ | `monitoring/alerts.py` (thread isolation, exceptions swallowed) |
 
-## §17 개발 순서 · §18 필수 테스트 · §19 보고서 · §20 완료 기준
-| 항목 | 상태 | 근거 |
+## §17 Development order · §18 Required tests · §19 Reports · §20 Completion criteria
+| Item | Status | Evidence |
 |---|---|---|
-| 7단계 순서, 단계별 테스트/타입/린트/예제/문제/위험 보고 | 🟢 | 단계별 커밋 8개 + 사용자 보고; "변경 파일 목록"은 초기 단계만 명시 → git 커밋 이력으로 대체 |
-| §18 필수 테스트 24종 | ✅ | 모두 존재(항목별 대응은 §2~§12 표 참조), 총 119개 테스트 |
-| §19 보고서 파일 11종 + 그래프 9종 | ✅ | `reports/v1_reference/`, `test_report_bundle_writes_every_required_file`, `test_cli_backtest_writes_all_outputs_and_is_reproducible` |
-| §20 완료 기준 15항 | ✅/🟡 | 미검증 2건: 실거래소 접속 스모크(환경 제약), Docker 빌드 |
+| 7-stage order; per-stage reporting of tests/types/lint/examples/problems/risks | 🟢 | 8 per-stage commits + reports to the user; the "list of changed files" was given only for the early stages → replaced by the git commit history |
+| §18: 24 required tests | ✅ | All present (see the §2–§12 tables for the item-by-item mapping), 119 tests in total |
+| §19: 11 report files + 9 charts | ✅ | `reports/v1_reference/`, `test_report_bundle_writes_every_required_file`, `test_cli_backtest_writes_all_outputs_and_is_reproducible` |
+| §20: 15 completion criteria | ✅/🟡 | 2 unverified: smoke test connecting to the real exchange (environment constraint), Docker build |
 
-## §21 작업 방식 — 좋은 결과 검사 목록
-| 검사 | 결과 |
+## §21 Way of working — checklist for a good result
+| Check | Result |
 |---|---|
-| Look-ahead | 구조적 차단 + 테스트 2종 |
-| 수수료·펀딩 누락 | 반영, 민감도 표에 존재 |
-| Inverse 수학·계약 수량 | 공식 예시 검산 |
-| 생존자 편향 | 단일 심볼(BTCUSD_PERP)·상장 이후 전 구간 사용, 해당 없음 |
-| 과최적화·동일 데이터 튜닝/평가 | 시간순 분리·WF, OOS 후 변경 없음 |
-| 특정 기간 의존 | **확인됨(2022 하락장 의존)** — 보고서에 명시 |
-| 비현실적 체결가 | 다음 시가 + 슬리피지 + Taker |
-| 반올림 오차 | 정수 계약 내림, 테스트 |
+| Look-ahead | Blocked structurally + 2 tests |
+| Missing fees/funding | Included; present in the sensitivity table |
+| Inverse math and contract quantities | Cross-checked against official examples |
+| Survivorship bias | Single symbol (BTCUSD_PERP), entire period since listing used; not applicable |
+| Overfitting / tuning and evaluating on the same data | Chronological split and WF; no changes after OOS |
+| Dependence on a particular period | **Confirmed (depends on the 2022 bear market)** — stated in the report |
+| Unrealistic fill prices | Next open + slippage + Taker |
+| Rounding error | Contracts rounded down to integers, tested |
 
-## V2 연구 (사후 추가, 2026-09-02)
-| 항목 | 상태 | 근거 |
+## V2 research (added afterwards, 2026-09-02)
+| Item | Status | Evidence |
 |---|---|---|
-| 펀딩 피처 인과성(look-ahead 금지) | ✅ | `data/funding_features.py`, `tests/unit/test_funding_features.py` (14종, 미래 데이터 무영향·다음날 정산 누출 없음) |
-| 라이브/백테스트 신호 동등성 | ✅ | `tests/simulation/test_trader_simulation.py::test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest` (rtol 1e-12) |
-| 원래 원칙 불변(롱 금지·85% 캡·reduce-only·20%p/10%p) | ✅ | 가드는 `raw_target` 을 **감소**만 시킴, 리스크·실행 계층 무변경 — `docs/strategy_v2.md` §1 |
-| 사전 등록 평가 규칙 준수(OOS 되돌려 맞추기 금지) | ✅ | `docs/strategy_v2.md` §5, 채택 근거에서 전체 기간 성적 배제 |
-| 판정: 펀딩 가드 | 🟡 기본 OFF | −1bp FAIL→PASS 복구는 성공, 그러나 실이득의 0.2%만 펀딩 귀속 → 방향성 잡음으로 판정 |
-| 판정: 동적 레짐 V1 | ❌ 기각 | 정적 `fixed_50` 이 전체·OOS·워크포워드·거래수 모든 축에서 우위 — `docs/strategy_v2.md` §6.1 |
-| 펀딩 정산 시점 마크가격 근사 해소 | ✅ | `data/settlement_marks.py` — `--include-8h-mark` 로 받은 8h 마크 봉의 시가를 2순위 소스로 사용(근사 53.2% → 0%), `tests/unit/test_settlement_marks.py` 10종. 데이터셋 없으면 이전 동작과 **완전 동일** |
-| 위 변경의 결과 영향 정직 보고 | ✅ | 근사 적용 구간(2020-2023) 3,530건 실측: 누적 펀딩 오차 **+0.2352%**(근사가 과대계상). 백테스트 델타 `fixed_50` −0.11%, `regime_v1` −0.97%. 판정·워크포워드 승률 불변, OOS 숫자 완전 동일 — `docs/backtest_methodology.md` §6-2 |
-| 최초 영향 추정 오류의 자기정정 | ✅ | 참값이 있던 잔잔한 구간(2023-11+)만으로 +0.0096% 라 추정했으나 실제는 **25배**. 문서에 ⚠️ 정정 블록으로 명시, 은폐하지 않음 |
+| Causality of funding features (no look-ahead) | ✅ | `data/funding_features.py`, `tests/unit/test_funding_features.py` (14 tests: future data has no effect, no leakage from the next day's settlement) |
+| Live/backtest signal equivalence | ✅ | `tests/simulation/test_trader_simulation.py::test_trader_runs_the_funding_guard_with_the_same_features_as_the_backtest` (rtol 1e-12) |
+| Original principles unchanged (no longs, 85% cap, reduce-only, 20pp/10pp) | ✅ | The guard only ever **decreases** `raw_target`; risk and execution layers unchanged — `docs/strategy_v2.md` §1 |
+| Pre-registered evaluation rules followed (no retrofitting to OOS) | ✅ | `docs/strategy_v2.md` §5, full-period performance excluded from the grounds for adoption |
+| Verdict: funding guard | 🟡 OFF by default | Restoring −1bp FAIL→PASS succeeded, but only 0.2% of the actual gain is attributable to funding → judged to be directional noise |
+| Verdict: dynamic regime V1 | ❌ Rejected | Static `fixed_50` comes out ahead on every axis: full period, OOS, walk-forward, trade count — `docs/strategy_v2.md` §6.1 |
+| Mark-price approximation at funding settlement eliminated | ✅ | `data/settlement_marks.py` — uses the open of the 8h mark bars downloaded with `--include-8h-mark` as the 2nd-priority source (share approximated: 53.2% → 0%), 10 tests in `tests/unit/test_settlement_marks.py`. Without the dataset, behaviour is **exactly the same** as before |
+| Honest reporting of that change's impact on the results | ✅ | Measured on 3,530 settlements in the period where the approximation applied (2020-2023): cumulative funding error **+0.2352%** (the approximation overstated it). Backtest delta `fixed_50` −0.11%, `regime_v1` −0.97%. Verdicts and walk-forward win rates unchanged, OOS figures exactly identical — `docs/backtest_methodology.md` §6-2 |
+| Self-correction of the wrong initial impact estimate | ✅ | Estimated at +0.0096% from only the calm period that had true values (2023-11+), but the actual figure was **25×** that. Stated in the doc as a ⚠️ correction block, not hidden |
 
-## V4 대조군 검정 (사후 추가, 2026-09-02)
-| 항목 | 상태 | 근거 |
+## V4 control-arm tests (added afterwards, 2026-09-02)
+| Item | Status | Evidence |
 |---|---|---|
-| 승률에 신뢰구간 부재 → 오류 발생 | ✅ 수정 | 보고한 모든 승률의 Wilson 95% CI 가 0.5 포함. `docs/strategy_v2.md` §6.1 근거 1건 **철회**. `backtest/statistics.py` + 테스트 17종 |
-| 대조군(null) 부재 | ✅ 도입 | `strategy/controls.py` — 봉셔플·블록셔플·균등·동전. `scripts/control_arm_study.py` 시드 200 |
-| 다중비교 보정 부재 | ✅ 도입 | Šidák; 15개 검정 → α=0.00341. **보정 후 유의 0건** |
-| 대조군 자체의 비용 교란 발견·수정 | ✅ | 봉셔플이 실제보다 6.61배 거래(1,607 vs 243) → 격차의 69%가 수수료. 런 단위 `BlockShuffleControl` 로 1.09배로 교정 |
-| 공정 대조군 판정 | ❌ 타이밍 정보 없음 | `regime_v1` 최종 BTC 41 퍼센타일(p=0.592) — 자기 신호 무작위 재배열의 중앙값보다 못함 |
-| 검정력 한계 자백 | ✅ 명시 | 시드 200의 p 하한 0.00498 > 보정 α 0.00341 → **원리적으로 보정 유의 탐지 불가**. `docs/strategy_v4_control_arms.md` §4 |
+| No confidence intervals on win rates → an error resulted | ✅ Fixed | The Wilson 95% CI of every reported win rate contains 0.5. 1 supporting argument in `docs/strategy_v2.md` §6.1 **withdrawn**. `backtest/statistics.py` + 17 tests |
+| No control arm (null) | ✅ Introduced | `strategy/controls.py` — bar shuffle, block shuffle, uniform, coin flip. `scripts/control_arm_study.py` with 200 seeds |
+| No multiple-comparison correction | ✅ Introduced | Šidák; 15 tests → α=0.00341. **0 significant after correction** |
+| Cost confound in the control arm itself found and fixed | ✅ | The bar shuffle traded 6.61× as much as the real arm (1,607 vs 243) → 69% of the gap was fees. Corrected to 1.09× with the run-level `BlockShuffleControl` |
+| Verdict against the fair control arm | ❌ No timing information | `regime_v1` final BTC at the 41st percentile (p=0.592) — worse than the median of random rearrangements of its own signal |
+| Power limitation admitted | ✅ Stated | With 200 seeds the p floor is 0.00498 > corrected α 0.00341 → **corrected significance undetectable in principle**. `docs/strategy_v4_control_arms.md` §4 |
 
-## 남은 미검증·한계 (요약)
-1. ~~데모/실서버 실접속 스모크 테스트 미실행~~ → **2026-09-02 완료** (주문 제출·체결·WS 스트림, `docs/exchange_api_verification.md` §16).
-2. ~~펀딩 명목가치 공식 COIN-M 원문 PARTIAL~~ → **2026-09-04 실측 VERIFIED (±8.12%)**. 원문은 여전히 미발견이나 실제 정산과 대조 완료 — `docs/inverse_math.md` §6. 8% 이내 미세 오차는 미배제(포지션 확대 시 개선).
-3. API 키 출금 권한은 수동 확인.
-4. Docker 이미지 빌드 미검증.
-5. 현재 VIP0 수수료율·BNB 할인 미확인(런타임 조회).
-6. ~~WebSocket 은 로컬 서버 테스트로만 검증~~ → **2026-09-02 실서버 연결 확인**(`user_data`, `mark_price`).
-6-1. **신규 UNVERIFIED**: 데모는 `fundingRate` 이력을 제공하지 않으며, 데모/프로덕션 요율이 다르다(2.9배 관측). 공식 문서에 명시 없음.
-7. V2~V4 결과는 2020-08-11~2026-09-01 스냅샷 1개(2,213 일봉)에 기반 — 단일 시장 사이클, 폭락 표본 1개.
-8. V4 대조군 검정은 시드 200으로 검정력이 부족하다(§V4). "효과 없음"이 아니라 "증거 없음"이다.
+## Remaining unverified items and limitations (summary)
+1. ~~Smoke test with a real connection to the demo/real server not yet run~~ → **completed 2026-09-02** (order submission and fill, WS streams, `docs/exchange_api_verification.md` §16).
+2. ~~Funding notional-value formula: official COIN-M text PARTIAL~~ → **2026-09-04 measured live, VERIFIED (±8.12%)**. The official text is still not found, but the comparison against an actual settlement is complete — `docs/inverse_math.md` §6. A small error within 8% is not ruled out (improves with a larger position).
+3. API key withdrawal permission is checked manually.
+4. Docker image build unverified.
+5. Current VIP0 fee rate and BNB discount not confirmed (queried at runtime).
+6. ~~WebSocket verified only by tests against a local server~~ → **2026-09-02 connection to the real server confirmed** (`user_data`, `mark_price`).
+6-1. **New UNVERIFIED**: the demo does not provide `fundingRate` history, and demo and production rates differ (2.9× observed). Not stated in the official docs.
+7. V2–V4 results rest on 1 snapshot, 2020-08-11 to 2026-09-01 (2,213 daily bars) — a single market cycle, 1 crash sample.
+8. The V4 control-arm tests are underpowered at 200 seeds (§V4). This is "no evidence", not "no effect".

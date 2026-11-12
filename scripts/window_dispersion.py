@@ -54,14 +54,16 @@ def main() -> int:
     calm = sorted(s for s in hodl_mdd if s not in crash)
 
     print(
-        f"{len(hodl_mdd)}개 창 / 폭락창 {len(crash)} / 평시창 {len(calm)}  "
-        f"(기준: 창 내부 HODL 낙폭 <= {CRASH_MDD:.0%})"
+        f"{len(hodl_mdd)} windows / crash windows {len(crash)} / calm windows {len(calm)}  "
+        f"(criterion: HODL drawdown inside the window <= {CRASH_MDD:.0%})"
     )
-    print("창은 서로 겹친다 — 독립 표본 수는 훨씬 적다(2년 창, 91일 간격).\n")
+    print(
+        "The windows overlap — the number of independent samples is much smaller (2-year windows, 91 days apart).\n"
+    )
 
     print(
-        f"{'비율':>5} | {'최악':>7} {'중앙값':>8} {'최고':>7} | {'범위폭':>7} | {'최고/최악':>9} | "
-        f"{'평시 중앙값':>11} {'폭락 중앙값':>11}"
+        f"{'ratio':>5} | {'worst':>7} {'median':>8} {'best':>7} | {'range':>7} | {'max/min':>9} | "
+        f"{'calm median':>11} {'crash median':>11}"
     )
     print("-" * 92)
     for ratio in sorted(by_ratio):
@@ -74,7 +76,9 @@ def main() -> int:
             f"{st.median([by_ratio[ratio][s] for s in crash]):11.3f}"
         )
 
-    print("\n같은 비율·같은 폭락에서도 진입 시점이 결과를 뒤집는가:")
+    print(
+        "\nDoes the entry date flip the outcome even at the same ratio and through the same crash:"
+    )
     peak, late = "2021-03-10", "2022-03-09"
     if peak in hodl_mdd and late in hodl_mdd:
         for ratio in sorted(by_ratio):
@@ -82,11 +86,13 @@ def main() -> int:
                 continue
             a, b = by_ratio[ratio][peak], by_ratio[ratio][late]
             print(
-                f"  {ratio * 100:3.0f}%: 고점직전 진입 {a:.3f}  vs  하락개시후 진입 {b:.3f}"
-                f"   ({a / b:.1f}배)"
+                f"  {ratio * 100:3.0f}%: entry just before the peak {a:.3f}  vs  entry after the decline began {b:.3f}"
+                f"   ({a / b:.1f}x)"
             )
-        print("\n  폭락이 일어났다는 사실이 아니라 '고점 전에 헤지돼 있었는가'가 결과를 만든다.")
-        print("  그건 타이밍이고, V1/V4 는 이 전략에 타이밍 우위가 없다고 결론지었다.")
+        print(
+            "\n  It is not the fact that a crash happened but 'was the hedge on before the peak' that decides the outcome."
+        )
+        print("  That is timing, and V1/V4 concluded that this strategy has no timing edge.")
     return 0
 
 

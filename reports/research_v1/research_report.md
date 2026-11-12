@@ -1,12 +1,12 @@
-# 과최적화 검증 보고서 (Split / Grid / Walk-forward / 시작일 의존성)
+# Overfitting validation report (Split / Grid / Walk-forward / start-date dependence)
 
 - run: `research-20260902T065605Z-4f4dd4af` / git `30eb99387c6dffe5975144aa819553f971aaa4a0` / config `4f4dd4af078e` / seed 42
-- 시간순 분리: 연구 2021-03-10→2024-06-22 / 검증 2024-06-23→2025-07-27 / OOS 2025-07-28→2026-09-01
-- 원칙: 무작위 섞기 없음, 파라미터는 연구·훈련 구간에서만 선택, OOS 결과를 보고 파라미터를 되돌려 고치지 않음(이 보고서 이후의 수정은 OOS를 무효화함).
+- Chronological split: research 2021-03-10→2024-06-22 / validation 2024-06-23→2025-07-27 / OOS 2025-07-28→2026-09-01
+- Principles: no random shuffling; parameters are selected on the research/training windows only; no going back to revise parameters after seeing the OOS results (any change made after this report invalidates the OOS).
 
-## 1. 연구 구간 Grid Search (72개 조합, plateau 점수 상위 10)
+## 1. Research-segment Grid Search (72 combinations, top 10 by plateau score)
 
-목적함수: Composite objective (documented in docs/backtest_methodology.md): 0.5 · CAGR_BTC + 0.5 · (CAGR_USD − HODL_CAGR_USD) − 0.25 · max(0, MDD_HODL_USD − MDD_USD) i.e. reward BTC growth and USD performance relative to HODL equally, penalise a USD drawdown worse than HODL. NaNs score −inf.
+Objective: Composite objective (documented in docs/backtest_methodology.md): 0.5 · CAGR_BTC + 0.5 · (CAGR_USD − HODL_CAGR_USD) − 0.25 · max(0, MDD_HODL_USD − MDD_USD) i.e. reward BTC growth and USD performance relative to HODL equally, penalise a USD drawdown worse than HODL. NaNs score −inf.
 
 | hedge_bull | hedge_neutral | hedge_bear | regime_confirm_bars | slope_lookback | score | neighbour_score | plateau_score | final_btc | cagr_usd | excess_vs_hodl_usd_pct | max_drawdown_usd | total_trades |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -21,11 +21,11 @@
 | 0.10 | 0.60 | 0.70 | 5 | 5 | 0.0733 | 0.0771 | 0.0752 | 1.2552 | 0.1236 | 0.2552 | -0.4661 | 108 |
 | 0.10 | 0.45 | 0.70 | 5 | 10 | 0.0809 | 0.0687 | 0.0748 | 1.2840 | 0.1313 | 0.2840 | -0.5054 | 81 |
 
-- 기준 V1(0.10/0.45/0.85, 확인 2일, 기울기 5일)의 연구 구간 순위: 29 / 72 (plateau 점수 0.0568)
+- Research-segment rank of the reference V1 (0.10/0.45/0.85, 2-day confirmation, 5-day slope): 29 / 72 (plateau score 0.0568)
 
-## 2. 구간별 성과 (연구 / 검증 / OOS)
+## 2. Performance by segment (research / validation / OOS)
 
-| 구간 | 전략 | 최종 BTC | BTC CAGR | USD CAGR | HODL USD CAGR | HODL 대비 USD | USD MDD | HODL MDD | 거래 | 펀딩 | 판정 |
+| Segment | Strategy | Final BTC | BTC CAGR | USD CAGR | HODL USD CAGR | USD vs HODL | USD MDD | HODL MDD | Trades | Funding | Verdict |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | research | regime_hedge_v1 | 1.2164 | +6.14% | +11.29% | +4.85% | +21.64% | -47.12% | -76.71% | 151 | 0.0774 | PASS |
 | research | hodl | 1.0000 | +0.00% | +4.85% | +4.85% | +0.00% | -76.71% | -76.71% | 0 | 0.0000 | BENCHMARK |
@@ -46,9 +46,9 @@
 | out_of_sample | ema200_simple | 1.2815 | +25.35% | -15.60% | -32.67% | +28.15% | -25.67% | -53.06% | 18 | 0.0316 | PASS |
 | out_of_sample | regime_hedge_research_best | 1.2673 | +24.09% | -16.46% | -32.67% | +26.73% | -24.22% | -53.06% | 30 | 0.0351 | PASS |
 
-## 3. Nested Walk-forward (훈련 730일 → 시험 180일, 180일 전진)
+## 3. Nested Walk-forward (train 730 days → test 180 days, stepping forward 180 days)
 
-| 폴드 | 시험 구간 | 선택 파라미터 (bull/neutral/bear/confirm/slope) | 훈련 점수 | 시험 점수(적응) | 시험 점수(고정 V1) |
+| Fold | Test window | Selected parameters (bull/neutral/bear/confirm/slope) | Train score | Test score (adaptive) | Test score (fixed V1) |
 |---|---|---|---|---|---|
 | 0 | 2023-03-11→2023-09-06 | 0.20/0.60/0.85/2/5 | 0.3396 | -0.2652 | -0.2532 |
 | 1 | 2023-09-07→2024-03-04 | 0.20/0.60/0.85/10/10 | 0.3044 | -2.4184 | -1.5488 |
@@ -58,7 +58,7 @@
 | 5 | 2025-08-27→2026-02-22 | 0.10/0.60/0.70/5/10 | -0.2274 | 0.5068 | 0.5910 |
 | 6 | 2026-02-23→2026-08-21 | 0.20/0.60/0.70/5/10 | 0.0774 | -0.2535 | -0.2604 |
 
-| 폴드 | 전략 | 최종 BTC | HODL 대비 USD | USD MDD | HODL MDD | 거래 | 판정 |
+| Fold | Strategy | Final BTC | USD vs HODL | USD MDD | HODL MDD | Trades | Verdict |
 |---|---|---|---|---|---|---|---|
 | 0 | adaptive | 0.8952 | -10.48% | -13.79% | -18.19% | 28 | FAIL |
 | 0 | reference_v1 | 0.9002 | -9.98% | -14.91% | -18.19% | 30 | FAIL |
@@ -89,23 +89,23 @@
 | 6 | hodl | 1.0000 | +0.00% | -28.80% | -28.80% | 0 | BENCHMARK |
 | 6 | fixed_hedge_50 | 0.9324 | -6.76% | -15.51% | -28.80% | 3 | FAIL |
 
-- 폴드 연결(각 폴드 1 BTC 재시작, 복리) BTC 성장: 적응 -44.92% / 고정 V1 -35.18%
-- 폴드 연결 USD 성장: 적응 +113.48% / 고정 V1 +151.22% / HODL +287.58%
-- adaptive: BTC 증가 폴드 1/7, HODL(USD) 초과 폴드 1/7, 평균 HODL 대비 USD -6.45%, 평균 BTC 증가 -0.0645
-- reference_v1: BTC 증가 폴드 1/7, HODL(USD) 초과 폴드 1/7, 평균 HODL 대비 USD -4.72%, 평균 BTC 증가 -0.0472
-- fixed_hedge_50: BTC 증가 폴드 2/7, HODL(USD) 초과 폴드 2/7, 평균 HODL 대비 USD -4.59%, 평균 BTC 증가 -0.0459
+- Chained folds (each fold restarts at 1 BTC, compounded) BTC growth: adaptive -44.92% / fixed V1 -35.18%
+- Chained-fold USD growth: adaptive +113.48% / fixed V1 +151.22% / HODL +287.58%
+- adaptive: folds with BTC growth 1/7, folds beating HODL (USD) 1/7, mean USD vs HODL -6.45%, mean BTC growth -0.0645
+- reference_v1: folds with BTC growth 1/7, folds beating HODL (USD) 1/7, mean USD vs HODL -4.72%, mean BTC growth -0.0472
+- fixed_hedge_50: folds with BTC growth 2/7, folds beating HODL (USD) 2/7, mean USD vs HODL -4.59%, mean BTC growth -0.0459
 
-## 4. 시작일 의존성 (2년 보유, 91일 간격 시작)
+## 4. Start-date dependence (2-year holds, start dates 91 days apart)
 
-- regime_hedge_v1: 시작일 14개 중 BTC 증가 6개, HODL(USD) 초과 6개; BTC 증가 중앙값 -0.0804 (최소 -0.5176, 최대 +0.8302); HODL 대비 USD 중앙값 -8.04% (최소 -51.76%, 최대 +83.02%)
-- fixed_hedge_50: 시작일 14개 중 BTC 증가 6개, HODL(USD) 초과 6개; BTC 증가 중앙값 -0.1513 (최소 -0.5005, 최대 +0.9788); HODL 대비 USD 중앙값 -15.13% (최소 -50.05%, 최대 +97.88%)
+- regime_hedge_v1: of 14 start dates, BTC grew in 6 and HODL (USD) was beaten in 6; median BTC growth -0.0804 (min -0.5176, max +0.8302); median USD vs HODL -8.04% (min -51.76%, max +83.02%)
+- fixed_hedge_50: of 14 start dates, BTC grew in 6 and HODL (USD) was beaten in 6; median BTC growth -0.1513 (min -0.5005, max +0.9788); median USD vs HODL -15.13% (min -50.05%, max +97.88%)
 
 ![walk_forward](charts/walk_forward_oos_equity.png)
 
 ![start_date](charts/start_date_dependence.png)
 
-## 5. 해석 지침
+## 5. Interpretation guidelines
 
-- 적응 파라미터가 고정 V1보다 OOS에서 꾸준히 낫지 않으면 그리드 탐색은 과최적화 위험만 키운다 → 고정 파라미터 유지.
-- 폴드 절반 이상에서 BTC가 줄거나 HODL(USD) 대비 열위면 전략의 타이밍 알파는 없다고 본다(펀딩 캐리만 남음).
-- 시작일에 따라 결과 부호가 뒤집히면 성과는 특정 구간(예: 2022 하락장)에 의존한다.
+- If the adaptive parameters are not consistently better than the fixed V1 out of sample, the grid search only adds overfitting risk → keep the fixed parameters.
+- If BTC shrinks or the strategy trails HODL (USD) in half or more of the folds, the strategy is taken to have no timing alpha (only the funding carry remains).
+- If the sign of the result flips depending on the start date, the performance depends on a specific period (e.g. the 2022 bear market).

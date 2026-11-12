@@ -1,4 +1,4 @@
-"""Report bundle: CSV/JSON files, Korean markdown report and PNG charts for a backtest run.
+"""Report bundle: CSV/JSON files, Markdown report and PNG charts for a backtest run.
 
 Nothing is ever omitted because it looks bad: every strategy, every period and every chart is
 written regardless of the outcome.
@@ -21,36 +21,6 @@ from matplotlib.ticker import FuncFormatter, PercentFormatter
 
 from btc_inventory_quant.backtest.engine import BacktestResult
 from btc_inventory_quant.backtest.metrics import PerformanceSummary
-
-
-def _configure_fonts() -> bool:
-    """Pick a font with Hangul glyphs when available; return True if Korean labels can be rendered."""
-    from matplotlib import font_manager
-
-    preferred = (
-        "Noto Sans CJK KR",
-        "Noto Sans CJK JP",
-        "Noto Sans CJK SC",
-        "NanumGothic",
-        "Malgun Gothic",  # Windows
-        "Apple SD Gothic Neo",  # macOS
-        "AppleGothic",
-    )
-    available = {f.name for f in font_manager.fontManager.ttflist}
-    for name in preferred:
-        if name in available:
-            plt.rcParams["font.family"] = [name, "DejaVu Sans"]
-            plt.rcParams["axes.unicode_minus"] = False
-            return True
-    return False
-
-
-KOREAN_FONT = _configure_fonts()
-
-
-def L(ko: str, en: str) -> str:  # noqa: N802 - tiny label helper
-    return ko if KOREAN_FONT else en
-
 
 # Fixed categorical order (validated palette, light mode). Assigned by entity, never cycled.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -165,7 +135,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     d = main.result.daily
 
     # 1. BTC equity curves
-    fig, ax = _figure(L("BTC Equity (전략별 BTC 수량)", "BTC equity by strategy"))
+    fig, ax = _figure("BTC equity by strategy")
     labels: list[tuple[pd.Series, str, str]] = []
     for i, run in enumerate(runs):
         s = run.result.daily["equity_btc"].astype(float)
@@ -181,7 +151,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     written.append(p)
 
     # 2. USD equity curves
-    fig, ax = _figure(L("USD Equity (전략별 USD 가치)", "USD equity by strategy"))
+    fig, ax = _figure("USD equity by strategy")
     for i, run in enumerate(runs):
         s = run.result.daily["equity_usd"].astype(float)
         ax.plot(
@@ -196,9 +166,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     written.append(p)
 
     # 3. USD equity relative to HODL (indexed)
-    fig, ax = _figure(
-        L("HODL 대비 USD Equity (전략 USD ÷ HODL USD)", "USD equity relative to HODL")
-    )
+    fig, ax = _figure("USD equity relative to HODL")
     labels = []
     for i, run in enumerate(runs):
         rd = run.result.daily
@@ -212,7 +180,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
         )
         labels.append((rel, run.name, SERIES[i]))
     ax.axhline(1.0, color=INK_2, linewidth=1, linestyle="--")
-    _style_axes(ax, L("배수", "multiple"))
+    _style_axes(ax, "multiple")
     _direct_labels(ax, labels)
     ax.legend(frameon=False, fontsize=8, loc="upper left")
     p = out_dir / "usd_equity_vs_hodl.png"
@@ -220,7 +188,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     written.append(p)
 
     # 4. cumulative BTC growth (equity_btc − initial)
-    fig, ax = _figure(L("누적 BTC 증가량 (equity_btc − 시작 BTC)", "Cumulative BTC growth"))
+    fig, ax = _figure("Cumulative BTC growth")
     for i, run in enumerate(runs):
         rd = run.result.daily
         g = rd["equity_btc"].astype(float) - rd["hodl_btc"].astype(float)
@@ -235,7 +203,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     written.append(p)
 
     # 5. hedge ratio history (main)
-    fig, ax = _figure(L(f"헤지율 변화 — {main.name}", f"Hedge ratio — {main.name}"))
+    fig, ax = _figure(f"Hedge ratio — {main.name}")
     eff = d["effective_ratio"].astype(float)
     tgt = d["decision_target"].astype(float)
     ax.plot(
@@ -243,7 +211,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
         eff.values,
         color=SERIES[0],
         linewidth=1.6,
-        label=L("유효 헤지율", "effective hedge ratio"),
+        label="effective hedge ratio",
     )
     ax.plot(
         tgt.index,
@@ -251,9 +219,9 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
         color=SERIES[1],
         linewidth=1,
         linestyle=":",
-        label=L("목표 헤지율(캡 적용)", "capped target"),
+        label="capped target",
     )
-    _style_axes(ax, L("헤지율", "hedge ratio"), pct=True)
+    _style_axes(ax, "hedge ratio", pct=True)
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=8, loc="upper left")
     p = out_dir / "hedge_ratio.png"
@@ -261,9 +229,7 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     written.append(p)
 
     # 6. price and hedge ratio (two panels, one axis each — never dual-axis)
-    fig, (ax1, ax2) = _figure(
-        L("BTC 가격(마크 종가)과 헤지율", "BTC mark price and hedge ratio"), nrows=2, height=3.2
-    )
+    fig, (ax1, ax2) = _figure("BTC mark price and hedge ratio", nrows=2, height=3.2)
     price = d["mark_close"].astype(float)
     ax1.plot(price.index, price.values, color=INK, linewidth=1.2)
     regimes = d["regime"].astype(str)
@@ -278,22 +244,20 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
                 where=mask.to_numpy(),
                 color=color,
                 alpha=0.12,
-                label=L(f"{regime} 구간", f"{regime} regime"),
+                label=f"{regime} regime",
             )
     _style_axes(ax1, "USD")
     ax1.set_yscale("log")
     ax1.legend(frameon=False, fontsize=8, loc="upper left")
     ax2.plot(eff.index, eff.values, color=SERIES[0], linewidth=1.6)
-    _style_axes(ax2, L("헤지율", "hedge ratio"), pct=True)
+    _style_axes(ax2, "hedge ratio", pct=True)
     ax2.set_ylim(0, 1)
     p = out_dir / "price_and_hedge_ratio.png"
     _save(fig, p)
     written.append(p)
 
     # 7. drawdown
-    fig, (ax1, ax2) = _figure(
-        L("Drawdown (USD / BTC 기준)", "Drawdown (USD / BTC)"), nrows=2, height=3.0
-    )
+    fig, (ax1, ax2) = _figure("Drawdown (USD / BTC)", nrows=2, height=3.0)
     dd = main.frames["drawdown"]
     ax1.fill_between(
         dd.index,
@@ -326,13 +290,13 @@ def write_charts(main: StrategyRun, benchmarks: list[StrategyRun], out_dir: Path
     for key, title, fname, _col in (
         (
             "fees_btc_today",
-            L("누적 거래수수료 (BTC)", "Cumulative trading fees (BTC)"),
+            "Cumulative trading fees (BTC)",
             "cumulative_fees.png",
             0,
         ),
         (
             "funding_btc_today",
-            L("누적 펀딩비 (BTC, 양수 = 수취)", "Cumulative funding (BTC, + = received)"),
+            "Cumulative funding (BTC, + = received)",
             "cumulative_funding.png",
             0,
         ),
@@ -393,74 +357,78 @@ def write_markdown_report(
     v = main.summary.to_dict()
     runs = [main, *benchmarks]
     lines: list[str] = []
-    lines.append(f"# 백테스트 보고서 — {main.name}")
+    lines.append(f"# Backtest report — {main.name}")
     lines.append("")
     lines.append(
-        f"- 실행 ID: `{metadata.get('run_id')}` / 실행 시각(UTC): {metadata.get('started_at_utc')}"
+        f"- Run ID: `{metadata.get('run_id')}` / run timestamp (UTC): {metadata.get('started_at_utc')}"
     )
     lines.append(
-        f"- 코드 버전: {metadata.get('code_version')} / git: `{metadata.get('git_commit')}` / 설정 해시: `{metadata.get('config_sha256')}` / seed: {metadata.get('seed')}"
+        f"- Code version: {metadata.get('code_version')} / git: `{metadata.get('git_commit')}` / config hash: `{metadata.get('config_sha256')}` / seed: {metadata.get('seed')}"
     )
     lines.append(
-        f"- 기간: {v['start_date']} → {v['end_date']} ({v['days']}일, {v['years']:.2f}년) / 시작 BTC: {v['start_btc']}"
+        f"- Period: {v['start_date']} → {v['end_date']} ({v['days']} days, {v['years']:.2f} years) / starting BTC: {v['start_btc']}"
     )
     lines.append("")
-    lines.append("## 1. 핵심 결과 (BTC 기준과 USD 기준을 동시에 평가)")
+    lines.append("## 1. Key results (evaluated in BTC terms and USD terms simultaneously)")
     lines.append("")
-    lines.append("| 지표 | 값 |")
+    lines.append("| Metric | Value |")
     lines.append("|---|---|")
     for label, key, f in (
-        ("최종 BTC", "final_btc", _fmt),
-        ("순 BTC 증가량", "net_btc_growth", _fmt),
-        ("BTC 기준 CAGR", "cagr_btc", _fmt_pct),
-        ("시작 USD", "start_usd", lambda x: _fmt(x, 0)),
-        ("최종 USD", "final_usd", lambda x: _fmt(x, 0)),
-        ("USD 기준 CAGR", "cagr_usd", _fmt_pct),
-        ("HODL 최종 USD", "hodl_final_usd", lambda x: _fmt(x, 0)),
-        ("HODL 대비 USD 초과성과", "excess_vs_hodl_usd_pct", _fmt_pct),
-        ("USD 최대 낙폭", "max_drawdown_usd", _fmt_pct),
-        ("HODL USD 최대 낙폭", "hodl_max_drawdown_usd", _fmt_pct),
-        ("BTC 최대 낙폭", "max_drawdown_btc", _fmt_pct),
-        ("USD Sharpe(일간, rf=0)", "sharpe_usd", lambda x: _fmt(x, 2)),
-        ("총 실현 손익(BTC)", "total_realized_pnl_btc", _fmt),
-        ("총 미실현 손익(BTC)", "total_unrealized_pnl_btc", _fmt),
-        ("총 펀딩비(BTC, +수취)", "total_funding_btc", _fmt),
-        ("총 거래수수료(BTC)", "total_fees_btc", _fmt),
-        ("총 슬리피지 비용(BTC)", "total_slippage_cost_btc", _fmt),
-        ("총 거래 횟수", "total_trades", str),
-        ("총 회전율(명목/평균자산)", "turnover_total", lambda x: _fmt(x, 2)),
-        ("평균 헤지율", "avg_hedge_ratio", _fmt_pct),
-        ("최대 헤지율", "max_hedge_ratio", _fmt_pct),
-        ("최악 연속 손실일(USD)", "worst_consecutive_losing_days_usd", str),
-        ("최악 연속 손실 구간 수익률(USD)", "worst_losing_run_usd_pct", _fmt_pct),
-        ("최악 연속 손실 청산거래 수", "worst_consecutive_losing_closes", str),
-        ("판정", "verdict", str),
+        ("Final BTC", "final_btc", _fmt),
+        ("Net BTC growth", "net_btc_growth", _fmt),
+        ("CAGR in BTC terms", "cagr_btc", _fmt_pct),
+        ("Starting USD", "start_usd", lambda x: _fmt(x, 0)),
+        ("Final USD", "final_usd", lambda x: _fmt(x, 0)),
+        ("CAGR in USD terms", "cagr_usd", _fmt_pct),
+        ("HODL final USD", "hodl_final_usd", lambda x: _fmt(x, 0)),
+        ("USD excess return vs HODL", "excess_vs_hodl_usd_pct", _fmt_pct),
+        ("USD maximum drawdown", "max_drawdown_usd", _fmt_pct),
+        ("HODL USD maximum drawdown", "hodl_max_drawdown_usd", _fmt_pct),
+        ("BTC maximum drawdown", "max_drawdown_btc", _fmt_pct),
+        ("USD Sharpe (daily, rf=0)", "sharpe_usd", lambda x: _fmt(x, 2)),
+        ("Total realized PnL (BTC)", "total_realized_pnl_btc", _fmt),
+        ("Total unrealized PnL (BTC)", "total_unrealized_pnl_btc", _fmt),
+        ("Total funding (BTC, + = received)", "total_funding_btc", _fmt),
+        ("Total trading fees (BTC)", "total_fees_btc", _fmt),
+        ("Total slippage cost (BTC)", "total_slippage_cost_btc", _fmt),
+        ("Total number of trades", "total_trades", str),
+        ("Total turnover (notional / average equity)", "turnover_total", lambda x: _fmt(x, 2)),
+        ("Average hedge ratio", "avg_hedge_ratio", _fmt_pct),
+        ("Maximum hedge ratio", "max_hedge_ratio", _fmt_pct),
+        ("Worst consecutive losing days (USD)", "worst_consecutive_losing_days_usd", str),
+        ("Return over the worst losing streak (USD)", "worst_losing_run_usd_pct", _fmt_pct),
+        ("Worst consecutive losing closing trades", "worst_consecutive_losing_closes", str),
+        ("Verdict", "verdict", str),
     ):
         lines.append(f"| {label} | {f(v.get(key))} |")
     lines.append("")
-    lines.append("### BTC 손익 분해 (최종 BTC − 시작 BTC = 실현 + 미실현 + 펀딩 + 수수료)")
+    lines.append(
+        "### BTC PnL decomposition (final BTC − starting BTC = realized + unrealized + funding + fees)"
+    )
     lines.append("")
-    lines.append("| 항목 | BTC |")
+    lines.append("| Component | BTC |")
     lines.append("|---|---|")
     trading = float(v.get("total_realized_pnl_btc") or 0) + float(
         v.get("total_unrealized_pnl_btc") or 0
     )
-    lines.append(f"| 헤지 타이밍 손익(실현+미실현, 수수료 전) | {trading:+.4f} |")
-    lines.append(f"| 펀딩비 수취(+)/지급(−) | {float(v.get('total_funding_btc') or 0):+.4f} |")
-    lines.append(f"| 거래수수료 | {float(v.get('total_fees_btc') or 0):+.4f} |")
+    lines.append(f"| Hedge timing PnL (realized + unrealized, before fees) | {trading:+.4f} |")
     lines.append(
-        f"| 슬리피지(체결가에 이미 반영, 참고) | {-float(v.get('total_slippage_cost_btc') or 0):+.4f} |"
+        f"| Funding received (+) / paid (−) | {float(v.get('total_funding_btc') or 0):+.4f} |"
     )
-    lines.append(f"| 순 BTC 증가량 | {float(v.get('net_btc_growth') or 0):+.4f} |")
+    lines.append(f"| Trading fees | {float(v.get('total_fees_btc') or 0):+.4f} |")
+    lines.append(
+        f"| Slippage (already reflected in fill prices; for reference) | {-float(v.get('total_slippage_cost_btc') or 0):+.4f} |"
+    )
+    lines.append(f"| Net BTC growth | {float(v.get('net_btc_growth') or 0):+.4f} |")
     lines.append("")
     lines.append(
-        "판정 기준: BTC 수량이 늘지 않았거나, USD 가치가 HODL 대비 30% 이상 열위이거나, USD 낙폭이 HODL보다 나쁘면 FAIL; USD가 HODL 대비 10% 이상 열위면 WEAK; 그 외 PASS. BTC만 늘고 USD가 크게 줄면 실패로 본다."
+        "Verdict criteria: FAIL if the BTC count did not grow, the USD value trails HODL by 30% or more, or the USD drawdown is worse than HODL's; WEAK if USD trails HODL by 10% or more; PASS otherwise. If only BTC grows while USD falls sharply, that counts as a failure."
     )
     lines.append("")
-    lines.append("## 2. 비교 기준 전략")
+    lines.append("## 2. Benchmark strategies")
     lines.append("")
     lines.append(
-        "| 전략 | 최종 BTC | BTC CAGR | 최종 USD | USD CAGR | HODL 대비 USD | USD MDD | BTC MDD | 펀딩(BTC) | 수수료(BTC) | 슬리피지(BTC) | 거래 | 평균 헤지율 | 판정 |"
+        "| Strategy | Final BTC | BTC CAGR | Final USD | USD CAGR | USD vs HODL | USD MDD | BTC MDD | Funding (BTC) | Fees (BTC) | Slippage (BTC) | Trades | Avg hedge ratio | Verdict |"
     )
     lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for run in runs:
@@ -469,10 +437,10 @@ def write_markdown_report(
             f"| {run.name} | {_fmt(r['final_btc'])} | {_fmt_pct(r['cagr_btc'])} | {_fmt(r['final_usd'], 0)} | {_fmt_pct(r['cagr_usd'])} | {_fmt_pct(r['excess_vs_hodl_usd_pct'])} | {_fmt_pct(r['max_drawdown_usd'])} | {_fmt_pct(r['max_drawdown_btc'])} | {_fmt(r['total_funding_btc'])} | {_fmt(r['total_fees_btc'])} | {_fmt(r['total_slippage_cost_btc'])} | {r['total_trades']} | {_fmt_pct(r['avg_hedge_ratio'])} | {r['verdict']} |"
         )
     lines.append("")
-    lines.append("## 3. 시장 상태별 성과 (동적 전략의 확정 상태 기준)")
+    lines.append("## 3. Performance by market regime (per the dynamic strategy's confirmed regime)")
     lines.append("")
     lines.append(
-        "| 상태 | 일수 | 전략 USD 수익률 | 전략 BTC 수익률 | HODL USD 수익률 | 평균 헤지율 |"
+        "| Regime | Days | Strategy USD return | Strategy BTC return | HODL USD return | Avg hedge ratio |"
     )
     lines.append("|---|---|---|---|---|---|")
     for regime, rp in (v.get("regime_performance") or {}).items():
@@ -480,10 +448,10 @@ def write_markdown_report(
             f"| {regime} | {rp['days']} | {_fmt_pct(rp['strategy_usd_return'])} | {_fmt_pct(rp['strategy_btc_return'])} | {_fmt_pct(rp['hodl_usd_return'])} | {_fmt_pct(rp['avg_hedge_ratio'])} |"
         )
     lines.append("")
-    lines.append("## 4. 연도별 수익률")
+    lines.append("## 4. Annual returns")
     lines.append("")
     yearly = main.frames["yearly_returns"]
-    lines.append("| 연도 | 전략 USD | 전략 BTC | HODL USD |")
+    lines.append("| Year | Strategy USD | Strategy BTC | HODL USD |")
     lines.append("|---|---|---|---|")
     for ts, row in yearly.iterrows():
         year = pd.Timestamp(str(ts)).year
@@ -491,7 +459,7 @@ def write_markdown_report(
             f"| {year} | {_fmt_pct(row['strategy_usd'])} | {_fmt_pct(row['strategy_btc'])} | {_fmt_pct(row['hodl_usd'])} |"
         )
     lines.append("")
-    lines.append("## 5. 월별 수익률 (USD)")
+    lines.append("## 5. Monthly returns (USD)")
     lines.append("")
     monthly = main.frames["monthly_returns"]
     pivot = monthly["strategy_usd"].to_frame()
@@ -499,7 +467,7 @@ def write_markdown_report(
     pivot["year"] = month_index.year
     pivot["month"] = month_index.month
     table = pivot.pivot(index="year", columns="month", values="strategy_usd")
-    lines.append("| 연도 | " + " | ".join(f"{m}월" for m in range(1, 13)) + " |")
+    lines.append("| Year | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |")
     lines.append("|---|" + "---|" * 12)
     for year_key, row_values in table.iterrows():
         year = int(str(year_key))
@@ -508,10 +476,10 @@ def write_markdown_report(
         lines.append(f"| {year} | " + " | ".join(cells) + " |")
     lines.append("")
     if sensitivity is not None and len(sensitivity):
-        lines.append("## 6. 민감도 분석")
+        lines.append("## 6. Sensitivity analysis")
         lines.append("")
         lines.append(
-            "| 시나리오 | 최종 BTC | USD CAGR | HODL 대비 USD | USD MDD | 수수료(BTC) | 펀딩(BTC) | 거래 | 판정 |"
+            "| Scenario | Final BTC | USD CAGR | USD vs HODL | USD MDD | Fees (BTC) | Funding (BTC) | Trades | Verdict |"
         )
         lines.append("|---|---|---|---|---|---|---|---|---|")
         for _, srow in sensitivity.iterrows():
@@ -519,7 +487,7 @@ def write_markdown_report(
                 f"| {srow['scenario']} | {_fmt(srow['final_btc'])} | {_fmt_pct(srow['cagr_usd'])} | {_fmt_pct(srow['excess_vs_hodl_usd_pct'])} | {_fmt_pct(srow['max_drawdown_usd'])} | {_fmt(srow['total_fees_btc'])} | {_fmt(srow['total_funding_btc'])} | {srow['total_trades']} | {srow['verdict']} |"
             )
         lines.append("")
-    lines.append("## 7. 그래프")
+    lines.append("## 7. Charts")
     lines.append("")
     for name in (
         "btc_equity",
@@ -534,21 +502,23 @@ def write_markdown_report(
     ):
         lines.append(f"![{name}](charts/{name}.png)")
     lines.append("")
-    lines.append("## 8. 방법론·가정·한계")
+    lines.append("## 8. Methodology, assumptions and limitations")
     lines.append("")
     lines.append(
-        "- 신호: 완결된 UTC 일봉 종가. 체결: 다음 일봉 시가 × (1 ± 슬리피지), Taker 수수료. 같은 캔들 신호·체결 없음."
+        "- Signal: close of the completed UTC daily candle. Execution: next daily candle's open × (1 ± slippage), Taker fee. No signal and fill on the same candle."
     )
     lines.append(
-        "- 펀딩: 실제 fundingRate 이력(00/08/16 UTC). 00:00 펀딩은 당일 체결 전, 08/16시는 체결 후 정산. 2023-11 이전 마크가격은 일봉 마크 OHLC 근사."
+        "- Funding: actual fundingRate history (00/08/16 UTC). The 00:00 funding is settled before that day's fill, the 08/16 h funding after the fill. Before 2023-11 the mark price is approximated from the daily mark OHLC."
     )
-    lines.append("- 평가: Mark Price 종가 기준 미실현 손익·자산. 인덱스 가격은 검증용.")
-    lines.append(f"- 비용: {config_dump.get('backtest', {}).get('cost')}")
-    lines.append(f"- 리스크 한도: {config_dump.get('risk')}")
     lines.append(
-        "- 계약 사양: exchangeInfo 스냅샷(계약가치 100 USD, 정수 계약). 과거 사양 변경 이력은 확인 불가 → 현재 사양 고정(한계)."
+        "- Valuation: unrealized PnL and equity at the Mark Price close. The index price is used for validation."
     )
-    lines.append(f"- 데이터 품질: {json.dumps(data_quality, ensure_ascii=False)[:1500]}")
+    lines.append(f"- Costs: {config_dump.get('backtest', {}).get('cost')}")
+    lines.append(f"- Risk limits: {config_dump.get('risk')}")
+    lines.append(
+        "- Contract specification: exchangeInfo snapshot (contract value 100 USD, whole contracts). The history of past specification changes cannot be verified → the current specification is held fixed (a limitation)."
+    )
+    lines.append(f"- Data quality: {json.dumps(data_quality, ensure_ascii=False)[:1500]}")
     for n in notes:
         lines.append(f"- {n}")
     lines.append("")

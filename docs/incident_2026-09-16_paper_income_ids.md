@@ -1,75 +1,76 @@
-# 인시던트 2026-09-16 — 페이퍼 계좌 income id 충돌로 SAFE_HOLD 4일
+# Incident 2026-09-16 — Paper account income id collision: SAFE_HOLD for 4 days
 
-**분류**: 운영 장애 (Shadow 전용 구성요소의 버그, 전략 무관) · **손실**: 0 (페이퍼 계좌) ·
-**관찰 손실**: 09-16 ~ 09-20 판단 4일 (SAFE_HOLD 중 판단 없음) · **발견**: 09-20 주간 점검
+**Category**: operational failure (a bug in a Shadow-only component, unrelated to the strategy) · **Loss**: 0 (paper account) ·
+**Observation lost**: 4 days of decisions, 09-16 ~ 09-20 (no decisions during SAFE_HOLD) · **Discovered**: 09-20 weekly check
 
 ---
 
-## 1. 무슨 일이 있었나
+## 1. What happened
 
-| 시각 (UTC) | 사건 |
+| Time (UTC) | Event |
 |---|---|
-| 09-14 13:00 | 감시자 수정(7fdd2d5) 배포로 에이전트 재시작. 페이퍼 계좌 복원(−154 계약) |
-| 09-15 00:05 | 사이클 2 정상 — 펀딩 2건 정산·원장 반영, 대사 OK |
-| 09-16 00:05 | 사이클 3 — 펀딩 3건 정산. 원장에는 **0건** 반영. 대사: `WALLET_BALANCE differs by 0.0000388 BTC` → **SAFE_HOLD** |
-| 09-16 ~ 09-20 | 사이클 4–7 전부 `safe_hold`. Telegram 으로 CRITICAL 1건 발송됨 |
-| 09-20 00:10 | 주간 점검에서 발견 |
+| 09-14 13:00 | Agent restarted to deploy the supervisor fix (7fdd2d5). Paper account restored (−154 contracts) |
+| 09-15 00:05 | Cycle 2 normal — 2 funding settlements, recorded in the ledger; reconciliation OK |
+| 09-16 00:05 | Cycle 3 — 3 funding settlements. **0** recorded in the ledger. Reconciliation: `WALLET_BALANCE differs by 0.0000388 BTC` → **SAFE_HOLD** |
+| 09-16 ~ 09-20 | Cycles 4–7 all `safe_hold`. 1 CRITICAL sent via Telegram |
+| 09-20 00:10 | Found in the weekly check |
 
-킬스위치는 **옳게** 걸렸다. 내부 원장과 거래소(페이퍼) 지갑이 실제로 달랐다. 문제는 왜
-달라졌는가다.
+The kill switch engaged **correctly**. The internal ledger and the exchange (paper) wallet really did differ. The question is
+why they came to differ.
 
-## 2. 원인
+## 2. Cause
 
-원장은 거래소 수입 기록을 `income:<type>:<id>` 로, 체결을 `trade:<id>` 로 중복 제거한다. 실제
-거래소는 전역 유일한 id 를 준다. **페이퍼 거래소는 메모리 카운터(`itertools.count(1)`)를 줬다.**
+The ledger deduplicates exchange income records by `income:<type>:<id>` and fills by `trade:<id>`. A real exchange issues
+globally unique ids. **The paper exchange issued ids from an in-memory counter (`itertools.count(1)`).**
 
 ```
-첫 프로세스 (09-11~09-14 01:12)   주문 1 · 체결 2 · 수수료 3 · 펀딩 4,5,6 (09-12) · 7,8,9 (09-13) · 10,11,12 (09-14)
-재시작 (09-14 13:00)              카운터가 1 로 돌아감
-                                  펀딩 1 (09-14 13:00) · 2,3 (09-15)
-09-16 00:05                       펀딩 4,5,6  ←  원장: "income:FUNDING_FEE:4 는 09-12 에 이미 반영됨" → 건너뜀 ×3
+First process (09-11~09-14 01:12)   order 1 · fill 2 · fee 3 · funding 4,5,6 (09-12) · 7,8,9 (09-13) · 10,11,12 (09-14)
+Restart (09-14 13:00)               counter goes back to 1
+                                    funding 1 (09-14 13:00) · 2,3 (09-15)
+09-16 00:05                         funding 4,5,6  ←  ledger: "income:FUNDING_FEE:4 already recorded on 09-12" → skipped ×3
 ```
 
-세 건(0.0000388 BTC)이 페이퍼 지갑에는 들어가고 원장에는 안 들어갔다. 허용 오차(0.00001 BTC)의
-4배다.
+The three settlements (0.0000388 BTC) went into the paper wallet but not into the ledger. That is 4 times the tolerance (0.00001 BTC).
 
-계좌 상태 저장(`paper_account`)에 카운터를 넣는 것만으로는 부족하다는 점이 중요하다. 상태는
-**성공한 사이클의 끝**에 저장되므로, 중단된 사이클에서 발급된 id 는 저장되지 않는다. 09-16 이
-바로 그 경우다 — id 4,5,6 을 발급한 사이클이 대사에서 중단됐다.
+What matters is that just adding the counter to the saved account state (`paper_account`) is not enough. The state is saved
+**at the end of a successful cycle**, so ids issued in an interrupted cycle are not saved. 09-16 is exactly that case — the
+cycle that issued ids 4,5,6 was cut short at reconciliation.
 
-## 3. 수정 (`exchange/paper.py`)
+## 3. Fix (`exchange/paper.py`)
 
-| # | 수정 | 근거 |
+| # | Fix | Rationale |
 |---|---|---|
-| 1 | 펀딩 income id 를 **펀딩 시각 자체**로 (`funding-<fundingTime>`) | 정산 1건 = id 1개, 카운터와 무관하게 유일 |
-| 2 | 카운터를 계좌 상태와 함께 저장하고, 복원 시 **현재 epoch ms 로 하한** | 저장된 카운터가 낡아도 이전 프로세스의 id 보다 항상 크다 |
+| 1 | Make the funding income id the **funding time itself** (`funding-<fundingTime>`) | 1 settlement = 1 id, unique regardless of the counter |
+| 2 | Save the counter with the account state, and on restore **floor it at the current epoch ms** | Even if the saved counter is stale, it is always greater than the previous process's ids |
 
-회귀 테스트 3건(`tests/simulation/test_paper_restart_ids.py`) — 수정 전 코드에서 실패 확인. 그중
-하나는 09-16 의 순서를 그대로 재현한다: 헤지 개시 → 이틀 펀딩 → 재시작 → 나흘 펀딩. 수정 전엔
-재시작 이틀째에 `internal state differs from exchange` 로 래치, 수정 후엔 원장과 지갑이 사토시까지 일치.
+3 regression tests (`tests/simulation/test_paper_restart_ids.py`) — confirmed failing on the pre-fix code. One of them reproduces
+the 09-16 sequence exactly: open the hedge → two days of funding → restart → four days of funding. Before the fix it latches with
+`internal state differs from exchange` on the second day after the restart; after the fix the ledger and the wallet match to the
+satoshi.
 
-## 4. 복구 (`scripts/repair_2026-09-16_paper_funding.py`)
+## 4. Recovery (`scripts/repair_2026-09-16_paper_funding.py`)
 
-원장에 빠진 세 건을 넣고, 저장된 두 지갑(`portfolio`, `paper_account`)에 같은 금액을 더한다.
-**지어낸 숫자는 없다** — 총액은 대사 기록이 남긴 차이 그대로이고, 세 건의 배분은 거래소에서
-받아온 실제 펀딩 비율에 비례한다(페이퍼가 계산한 방식과 같다: 같은 포지션 × 같은 마크 × 비율
-셋). 검산으로 "포지션 × 비율 합 / 차이"에서 역산한 마크를 사이클이 본 마크와 비교해 10% 밖이면
-거부한다. 기본은 dry-run, 두 번 적용은 거부.
+The script inserts the three missing entries into the ledger and adds the same amounts to the two saved wallets (`portfolio`,
+`paper_account`). **No number is made up** — the total is exactly the difference left in the reconciliation record, and the
+split across the three is proportional to the actual funding rates fetched from the exchange (the same way the paper exchange
+computed them: same position × same mark × the three rates). As a cross-check, it back-solves the mark from "position × sum of
+rates / difference", compares it with the mark the cycle saw, and refuses if it is more than 10% off. The default is dry-run;
+applying twice is refused.
 
-복구 뒤 SAFE_HOLD 는 **사람이** `--ack` 로 해제한다. 절차는 `state/repair_2026-09-16.sh` 한 번.
+After the repair, SAFE_HOLD is released **by a human** with `--ack`. The procedure is a single run of `state/repair_2026-09-16.sh`.
 
-## 5. 남는 한계
+## 5. Remaining limitations
 
-* 페이퍼 펀딩은 정산 시각의 마크가 아니라 **정산을 실행하는 순간의 마크**로 계산한다
-  (`/dapi/v1/fundingRate` 에 markPrice 가 없다). 매일 00:05 에 정산하면 오차가 작지만, 이번처럼
-  나흘치를 한 번에 정산하면 그 나흘의 마크 변동만큼 어긋난다(이번엔 1e-5 BTC 안팎). 페이퍼
-  한정 문제이고, 실제 계좌는 거래소가 정산한 금액을 그대로 받는다.
-* 프로세스 재시작 후 `cumulative_funding_btc` 지표는 **그 프로세스가 시작된 뒤**의 누적만
-  보여준다(원장 전체가 아니라 메모리의 원장). 정확한 누적은 DB `ledger_entries` 합이다.
+* Paper funding is computed with **the mark at the moment the settlement is executed**, not the mark at the settlement time
+  (`/dapi/v1/fundingRate` has no markPrice). Settling every day at 00:05 keeps the error small, but settling four days' worth at
+  once, as here, is off by as much as the mark moved over those four days (around 1e-5 BTC this time). This is a paper-only
+  problem; a real account receives exactly the amount the exchange settled.
+* After a process restart, the `cumulative_funding_btc` metric shows only the accumulation **since that process started** (the
+  in-memory ledger, not the whole ledger). The exact cumulative figure is the sum of DB `ledger_entries`.
 
-## 6. 교훈
+## 6. Lessons
 
-식별자의 유일성은 **그 식별자를 만드는 쪽이 보장해야 한다.** 원장은 거래소 id 가 유일하다고
-믿고 설계됐고 그 믿음은 실거래소에선 맞다. 그 자리에 시험용 구성요소를 끼워 넣을 땐 같은
-계약을 지키는지 확인해야 한다 — 페이퍼 거래소는 "실제 주문이 나가지 않는다"는 안전 계약은
-지켰지만 "id 는 유일하다"는 계약은 지키지 않았고, 그 차이가 나흘을 먹었다.
+The uniqueness of an identifier **must be guaranteed by whoever generates it.** The ledger was designed on the belief that
+exchange ids are unique, and on the live exchange that belief is correct. When a test component is slotted into that place, you
+have to check that it keeps the same contract — the paper exchange kept the safety contract "no real orders go out" but not the
+contract "ids are unique", and that difference cost four days.

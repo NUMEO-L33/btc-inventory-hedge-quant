@@ -1,53 +1,53 @@
-# 전략 V3 연구 — 정적 헤지 비율 (유일하게 남은 파라미터)
+# Strategy V3 study — static hedge ratio (the only parameter left)
 
-연구 스크립트: `scripts/static_ratio_frontier.py` → 결과 `reports/v3_static_ratio/`
-데이터: `data/raw_new` (8h 마크가격 포함 스냅샷, 2020-08-11 ~ 2026-09-01)
+Research script: `scripts/static_ratio_frontier.py` → results in `reports/v3_static_ratio/`
+Data: `data/raw_new` (snapshot including 8h mark prices, 2020-08-11 ~ 2026-09-01)
 
-> **결론 먼저**: **최적 비율은 이 데이터에 존재하지 않는다.** 사전 등록한 판정 통계는 격자 경계(0%)를 가리켰고 — 내가 정한 규칙에 따라 이는 **판정 불가**다. 프론티어는 거의 선형이며 인접 5%p 간 잡음이 전체 폭보다 크다. 즉 정적 비율은 **최적화 결과가 아니라 위험 선호의 선택**이다. 그리고 강건성 검사를 모두 통과하는 구간은 **10~20%** 인데, 거기서는 낙폭 감소 효과가 작다. **이 데이터로는 "큰 낙폭 감소"를 검증된 형태로 제공할 수 없다.**
+> **Conclusion first**: **no optimal ratio exists in this data.** The pre-registered verdict statistic pointed at the grid boundary (0%) — and under the rule I set, that means **inconclusive**. The frontier is nearly linear, and the noise between adjacent 5%p steps is larger than the full range. In other words, the static ratio is **a choice of risk preference, not an optimisation result**. And the band that passes every robustness check is **10~20%**, where the drawdown reduction is small. **With this data, a "large drawdown reduction" cannot be delivered in a verified form.**
 
 ---
 
-## 1. 왜 이 연구를 했나
+## 1. Why this study was done
 
-V2 가 동적 레짐 분류기를 기각했다(`docs/strategy_v2.md` §6.1). 그러면 자유 파라미터가 **정적 비율 하나만** 남는데, 그 파라미터는 **한 번도 탐색된 적이 없었다.** `reports/research_v1/` 의 72조합 그리드는 *레짐* 파라미터(bull/neutral/bear)를 훑은 것이고, `fixed_50` 은 벤치마크로 끼워넣은 값일 뿐이다. **50 이라는 숫자에는 근거가 없었다.**
+V2 rejected the dynamic regime classifier (`docs/strategy_v2.md` §6.1). That leaves **just one** free parameter, the static ratio — and that parameter **had never been searched.** The 72-combination grid in `reports/research_v1/` swept the *regime* parameters (bull/neutral/bear), and `fixed_50` was merely a value slotted in as a benchmark. **The number 50 had no basis.**
 
-## 2. 사전 등록한 설계 (결과를 보기 전에 고정)
+## 2. Pre-registered design (fixed before looking at the results)
 
-| 항목 | 내용 |
+| Item | Content |
 |---|---|
-| 격자 | 비율 ∈ {0.00, 0.05, …, 0.85}, 18점. 0.85 는 하드 리스크 캡 |
-| **판정 통계** | **워크포워드 테스트 폴드의 `score_run` 평균.** 전체 기간 성적은 판정에 쓰지 않는다 |
-| 평지 규칙 | 각 비율을 자신 ±5%p 이웃과의 평균으로 재채점. 뾰족한 봉우리는 넓은 평지에 진다 |
-| **경계 규칙** | 승자가 격자 경계(0.00 또는 0.85)면 **승자가 아니라 "판정 불가"** 로 보고한다 |
-| 산출물 | 단일 숫자가 아니라 **프론티어**(BTC 수량 vs USD 최대낙폭). 프론티어가 평평하면 "이건 최적화가 아니라 위험 선호"라고 그대로 쓴다 |
-| 강건성 | 사전 등록 분할 + 시작일 의존성(2년 보유, 91일 간격) + 역펀딩(−1bp/−3bp) |
+| Grid | ratio ∈ {0.00, 0.05, …, 0.85}, 18 points. 0.85 is the hard risk cap |
+| **Verdict statistic** | **Mean `score_run` over the walk-forward test folds.** Full-period performance is not used for the verdict |
+| Plateau rule | Each ratio is re-scored as the mean of itself and its ±5%p neighbours. A sharp peak loses to a broad plateau |
+| **Boundary rule** | If the winner sits on a grid boundary (0.00 or 0.85), it is reported **not as a winner but as "inconclusive"** |
+| Deliverable | Not a single number but a **frontier** (BTC quantity vs USD maximum drawdown). If the frontier is flat, it is written down as is: "this is not optimisation but risk preference" |
+| Robustness | Pre-registered splits + start-date dependence (2-year holds, 91-day spacing) + adverse funding (−1bp/−3bp) |
 
-## 3. 판정 통계 결과 — 그리고 내 설계 오류
+## 3. Verdict-statistic result — and my design error
 
-`score_run` 평균은 비율이 올라갈수록 **단조 감소**했다. 최고점은 0.00.
+The mean `score_run` **decreased monotonically** as the ratio rose. The maximum is at 0.00.
 
-| 비율 | 0.00 | 0.20 | 0.50 | 0.65 | 0.85 |
+| Ratio | 0.00 | 0.20 | 0.50 | 0.65 | 0.85 |
 |---|---:|---:|---:|---:|---:|
-| WF 평균 점수 | **0.000** | −0.168 | −0.386 | −0.446 | −0.506 |
-| WF 평균 최종 BTC | 1.000 | 0.985 | 0.954 | 0.945 | **0.936** |
-| BTC 증가 폴드 | — | 2/7 | 2/7 | 2/7 | 2/7 |
+| WF mean score | **0.000** | −0.168 | −0.386 | −0.446 | −0.506 |
+| WF mean final BTC | 1.000 | 0.985 | 0.954 | 0.945 | **0.936** |
+| Folds with BTC growth | — | 2/7 | 2/7 | 2/7 | 2/7 |
 | **Wilson 95% CI** | — | [0.082, 0.641] | [0.082, 0.641] | [0.082, 0.641] | [0.082, 0.641] |
 
-> **⚠️ 폴드 승률 열은 증거가 아니다 (2026-09-02 추가)**: 전 비율의 Wilson 95% 구간이 [0.082, 0.641] 로 **동일하고 모두 0.5를 포함한다.** "2/7"은 "나쁘다"가 아니라 **"n=7 로는 알 수 없다"** 로 읽어야 한다. 이 열은 아래 §7 판정의 근거로 쓰이지 않는다.
+> **⚠️ The fold win-rate column is not evidence (added 2026-09-02)**: the Wilson 95% intervals of all ratios are [0.082, 0.641] — **identical, and all of them contain 0.5.** "2/7" should be read not as "bad" but as **"cannot be known with n=7"**. This column is not used as grounds for the §7 verdict below.
 
-**승자가 격자 경계(0.00)다 → 경계 규칙에 의해 판정 불가.**
+**The winner is on the grid boundary (0.00) → inconclusive under the boundary rule.**
 
-> **⚠️ 설계 오류 자백**: `score_run` = 0.5·CAGR_BTC + 0.5·(CAGR_USD − HODL) − 0.25·max(0, MDD_HODL − MDD) 인데, 마지막 페널티 항은 **전략 낙폭이 HODL보다 나쁠 때만** 작동한다. 즉 **HODL보다 낙폭을 줄인 것에는 점수를 하나도 주지 않는다.** 그런데 낙폭 축소는 이 전략의 주된 목적이다. 나는 이 목적함수를 사전 등록할 때 이 부정합을 잡았어야 했다. 잡지 못했다.
+> **⚠️ Design error, confessed**: `score_run` = 0.5·CAGR_BTC + 0.5·(CAGR_USD − HODL) − 0.25·max(0, MDD_HODL − MDD), and the final penalty term applies **only when the strategy's drawdown is worse than HODL's**. That is, **it awards no score at all for reducing drawdown below HODL's.** Yet drawdown reduction is the main purpose of this strategy. I should have caught this inconsistency when I pre-registered the objective function. I did not.
 >
-> 그렇다고 결과를 본 뒤에 목적함수를 갈아끼우면 그건 되돌려 맞추기다. 그래서 **사전 등록 결과는 위와 같이 그대로 보고하고**, 아래부터는 목적함수와 무관한 **프론티어**로 판단한다(규칙 4).
+> Even so, swapping in a different objective function after seeing the results would be retrofitting. So **the pre-registered result is reported as is, above**, and from here on the judgement is made on the **frontier**, which does not depend on the objective function (rule 4).
 
-또 하나: 워크포워드 폴드 평균에서 **모든 헤지 비율이 BTC를 잃었다**(0.993 → 0.936). 전체 기간에서는 0.10 이상 모든 비율이 BTC를 늘렸는데도 그렇다. 이 모순이 이 연구의 핵심이다(§5).
+One more thing: averaged over the walk-forward folds, **every hedge ratio lost BTC** (0.993 → 0.936) — even though over the full period every ratio of 0.10 and above increased BTC. This contradiction is the crux of this study (§5).
 
-## 4. 프론티어 — 최적점이 없다
+## 4. The frontier — there is no optimum
 
 ![frontier](../reports/v3_static_ratio/charts/static_ratio_frontier.png)
 
-| 비율 | 최종 BTC | USD CAGR | USD 최대낙폭 | 펀딩(BTC) | 거래 |
+| Ratio | Final BTC | USD CAGR | USD maximum drawdown | Funding (BTC) | Trades |
 |---|---:|---:|---:|---:|---:|
 | 0% (HODL) | 1.000 | +6.4% | −76.7% | 0 | 0 |
 | 20% | 1.159 | +9.4% | −69.0% | 0.071 | 5 |
@@ -57,23 +57,23 @@ V2 가 동적 레짐 분류기를 기각했다(`docs/strategy_v2.md` §6.1). 그
 | 65% | **1.328** | +12.1% | −35.8% | 0.332 | 14 |
 | 85% | 1.166 | +9.5% | **−14.8%** | 0.438 | 8 |
 
-**인접한 5%p 사이의 진동(25% → 30% 에서 BTC 1.091 → 1.271, +0.18)이 전체 스프레드(1.09~1.33, 0.24)와 맞먹는다.** 이건 신호가 아니라 잡음이다. 0.65 의 최고점 1.328 은 평지가 아니라 봉우리이므로 채택 대상이 아니다.
+**The oscillation between adjacent 5%p steps (25% → 30%: BTC 1.091 → 1.271, +0.18) is comparable to the entire spread (1.09~1.33, 0.24).** That is noise, not signal. The maximum of 1.328 at 0.65 is a peak, not a plateau, so it is not a candidate for adoption.
 
-**비용/편익은 사실상 선형이다.** 워크포워드 폴드(180일) 평균으로 보면:
+**Cost/benefit is effectively linear.** Averaged over the walk-forward folds (180 days):
 
-| 비율 | 폴드당 BTC 손실 | HODL 대비 낙폭 감소 | 낙폭 1%p당 BTC 비용 |
+| Ratio | BTC loss per fold | Drawdown reduction vs HODL | BTC cost per 1%p of drawdown |
 |---|---:|---:|---:|
 | 10% | −0.70% | 2.1%p | 0.33% |
 | 50% | −4.59% | 12.0%p | 0.38% |
 | 85% | −6.45% | 20.3%p | 0.32% |
 
-**어느 비율에서도 낙폭 1%p 당 약 0.33%(180일)의 BTC를 낸다.** 싸게 사는 구간이 없다 = **최적화할 대상이 없다.** 이건 순수한 다이얼이다.
+**At every ratio you pay about 0.33% of BTC (per 180 days) for each 1%p of drawdown.** There is no band where it can be bought cheaply = **there is nothing to optimise.** This is a pure dial.
 
-## 5. 전체 기간과 워크포워드가 모순되는 이유 — 이건 보험이다
+## 5. Why the full period and walk-forward contradict each other — this is insurance
 
-비율 85% 의 폴드별 결과를 보면 정체가 드러난다.
+The per-fold results at the 85% ratio reveal what is really going on.
 
-| 폴드 | 최종 BTC | 해당 구간 HODL USD CAGR |
+| Fold | Final BTC | HODL USD CAGR in that segment |
 |---|---:|---:|
 | 0 | 0.897 | +63.6% |
 | **1** | **0.485** | **+625.7%** |
@@ -83,46 +83,46 @@ V2 가 동적 레짐 분류기를 기각했다(`docs/strategy_v2.md` §6.1). 그
 | **5** | **1.532** | **−63.9%** |
 | 6 | 0.888 | +34.8% |
 
-**7폴드 중 2폴드에서만 이익이 났고, 그 2폴드는 정확히 하락장이다.** 그리고 폴드 1(HODL +626% 폭등장)에서는 **BTC의 51.5%를 잃었다.**
+**Only 2 of the 7 folds made a profit, and those 2 folds are exactly the bear markets.** And in fold 1 (HODL +626%, a parabolic rally) it **lost 51.5% of its BTC.**
 
-분할 구간에서도 같은 구조가 단조롭게 나타난다.
+The same structure appears, monotonically, in the split segments as well.
 
-| 비율 | validation (상승장) | out_of_sample (하락장) |
+| Ratio | validation (bull market) | out_of_sample (bear market) |
 |---|---:|---:|
 | 0% | 1.000 | 1.000 |
 | 20% | 0.919 | 1.146 |
 | 50% | 0.780 | 1.299 |
 | 85% | **0.633** | **1.475** |
 
-**상승장에서는 비율이 오를수록 단조 손실, 하락장에서는 단조 이익.** 이것이 엣지가 아니라 **국면에 대한 방향성 베팅**이라는 정의 그 자체다.
+**In the bull market, a monotonic loss as the ratio rises; in the bear market, a monotonic gain.** That is the very definition of **a directional bet on the market phase** rather than an edge.
 
-정직한 서술: **이 전략은 알파가 아니라 보험이다.** 대부분의 기간에 보험료를 내고, 폭락이 오면 지급받는다. 그리고 이 표본에는 **폭락이 한 번(2022) 있었다.** 청구 사건이 한 번뿐인 데이터로 보험의 기대가치를 통계적으로 검증할 수는 없다.
+Stated honestly: **this strategy is insurance, not alpha.** It pays an insurance premium most of the time and gets paid out when a crash comes. And this sample contains **one crash (2022).** With data that has only one claim event, the expected value of the insurance cannot be statistically verified.
 
-## 6. 강건성 — 높은 비율은 살아남지 못한다
+## 6. Robustness — high ratios do not survive
 
-### 6.1 역펀딩 (유일하게 FAIL을 만드는 시나리오)
+### 6.1 Adverse funding (the only scenario that produces a FAIL)
 
-| 비율 | 기준 | −1bp/8h | −3bp/8h |
+| Ratio | Base | −1bp/8h | −3bp/8h |
 |---|---|---|---|
 | 10~20% | PASS | **PASS** | FAIL |
 | 30~35% | PASS | **PASS** | FAIL |
-| 25%, 40% 이상 | PASS | **FAIL** | FAIL |
+| 25%, 40% and above | PASS | **FAIL** | FAIL |
 
-**−1bp 역펀딩에서 살아남는 건 대략 10~35% 구간뿐이고, 40% 이상은 전부 FAIL 이다.** −3bp 에서는 전 구간 FAIL — 이 부분은 V2 의 펀딩 가드로도 해결되지 않았다.
+**Under −1bp adverse funding only roughly the 10~35% band survives, and everything at 40% and above FAILs.** At −3bp every band FAILs — this part was not solved by the V2 funding guard either.
 
-> **⚠️ 아래 문단은 §10.1 에서 철회되었다 (2026-09-11).** PASS/FAIL 자체가 전체 기간 BTC 증가를
-> 요구하고 그 증가는 2022 하나에서 나오므로, 이 논거도 단일 사건의 함수다. 대체 판정은 §10.2.
+> **⚠️ The paragraph below was withdrawn in §10.1 (2026-09-11).** PASS/FAIL itself requires full-period BTC
+> growth, and that growth comes from 2022 alone, so this argument too is a function of a single event. The replacement verdict is in §10.2.
 >
-> **PASS/FAIL 경계가 단조롭지 않다 (2026-09-11 추가)**: 격자를 5%p 단위로 펼치면
-> 10·15·20 PASS → **25 FAIL** → 30·35 PASS → 40 이상 FAIL 이다. 역펀딩 부담은 비율에
-> 단조 증가하므로 통과 여부도 단조여야 하는데 그렇지 않다. **즉 이 경계선은 신호가 아니라
-> 잡음이다.** 따라서 FAIL 바로 위에 놓인 30·35% 의 PASS 는 독립적인 증거로 쓸 수 없고,
-> 안전하게 통과한다고 말할 수 있는 구간은 **연속으로 PASS 인 10~20%** 뿐이다. §7 의
-> "10~20%" 판정은 이 논거로 보강된다.
+> **The PASS/FAIL boundary is not monotonic (added 2026-09-11)**: laying the grid out in 5%p steps gives
+> 10·15·20 PASS → **25 FAIL** → 30·35 PASS → 40 and above FAIL. The adverse-funding burden increases
+> monotonically with the ratio, so pass/fail should be monotonic too, but it is not. **In other words, this boundary is
+> noise, not signal.** Therefore the PASS at 30·35%, which sits just above a FAIL, cannot be used as independent evidence,
+> and the only band that can be said to pass safely is **10~20%, which PASSes contiguously**. The "10~20%"
+> verdict in §7 is reinforced by this argument.
 
-### 6.2 시작일 의존성 (2년 보유, 14개 창)
+### 6.2 Start-date dependence (2-year holds, 14 windows)
 
-| 비율 | BTC 증가한 창 | **Wilson 95% CI** | **최악 창의 최종 BTC** |
+| Ratio | Windows with BTC growth | **Wilson 95% CI** | **Final BTC in the worst window** |
 |---|---:|---:|---:|
 | 10% | 7/14 = 50.0% | [0.268, 0.732] | 0.925 |
 | **15%** | 8/14 = **57.1%** | [0.326, 0.786] | 0.858 |
@@ -130,137 +130,137 @@ V2 가 동적 레짐 분류기를 기각했다(`docs/strategy_v2.md` §6.1). 그
 | 50% | 6/14 = 42.9% | [0.214, 0.674] | 0.499 |
 | 85% | 6/14 = 42.9% | [0.214, 0.674] | **0.284** |
 
-승률 쪽은 **n=14 로도 여전히 판정 불가**다 — 전 비율의 구간이 0.5를 포함하므로 "15%가 57.1%로 최고"라는 관찰은 근거가 되지 않는다(이전 판에서 이를 근거처럼 인용했으나 철회한다). 또한 14개 창은 서로 91일 간격으로 겹쳐 있어 독립 표본이 아니므로, 이 구간조차 실제보다 좁게 나온다.
+On the win-rate side it is **still inconclusive, even with n=14** — the intervals of all ratios contain 0.5, so the observation that "15% is best at 57.1%" is not evidence (an earlier version cited it as if it were; that is withdrawn). Moreover, the 14 windows overlap one another at 91-day spacing and are not independent samples, so even these intervals come out narrower than they really are.
 
-반면 **최악 창 수치는 승률과 달리 단일 관측값이라 신뢰구간 문제가 없고, 그대로 유효하다**: 비율에 따라 단조 악화되어 85%에서는 **BTC의 71.6%를 잃는다.** §7·§8의 판정은 이쪽에 근거한다.
+By contrast, **the worst-window figure, unlike the win rate, is a single observed value, so it has no confidence-interval problem and stands as is**: it worsens monotonically with the ratio, and at 85% **71.6% of the BTC is lost.** The verdicts in §7·§8 rest on this.
 
-## 7. 판정
+## 7. Verdict
 
-| 질문 | 답 |
+| Question | Answer |
 |---|---|
-| 최적 정적 비율이 존재하는가? | **아니오.** 판정 통계는 경계를 가리켜 판정 불가, 프론티어는 선형, 인접 격자 잡음이 전체 스프레드와 맞먹음 |
-| 50%에 근거가 있는가? | **없다.** 다만 다른 어떤 값에도 근거가 없다 — 50%가 특별히 나쁘지도 않다 |
-| 비율 선택은 무엇인가? | **위험 선호의 선택.** 낙폭 1%p 당 약 0.33%(180일)의 BTC를 내는 균일한 가격표 |
-| 모든 강건성 검사를 통과하는 구간은? | **10~20%** (역펀딩 −1bp 생존, 최악 2년 창 0.79~0.93) |
-| 그 구간에서 목적을 달성하는가? | **거의 못 한다.** 낙폭 −76.7% → −69~72%. 원하던 "낙폭 대폭 축소"가 아니다 |
-| 높은 비율(50~85%)을 쓰면? | 낙폭은 −49~−15%로 크게 줄지만, 상승장에서 BTC 22~37% 손실, 최악 2년 창 −50~−72%, 역펀딩 −1bp 에서 FAIL |
+| Does an optimal static ratio exist? | **No.** The verdict statistic points at the boundary, hence inconclusive; the frontier is linear; adjacent-grid noise is comparable to the entire spread |
+| Is there a basis for 50%? | **None.** But there is no basis for any other value either — 50% is not particularly bad |
+| What is the ratio choice? | **A choice of risk preference.** A uniform price list: about 0.33% of BTC (per 180 days) paid for each 1%p of drawdown |
+| Which band passes every robustness check? | **10~20%** (survives −1bp adverse funding, worst 2-year window 0.79~0.93) |
+| Does that band achieve the goal? | **Hardly.** Drawdown −76.7% → −69~72%. Not the "drastic drawdown reduction" that was wanted |
+| What if a high ratio (50~85%) is used? | Drawdown shrinks substantially, to −49~−15%, but BTC loss of 22~37% in the bull market, worst 2-year window −50~−72%, and FAIL under −1bp adverse funding |
 
-**핵심 결론: 이 데이터로는 "큰 낙폭 감소"와 "검증된 강건성"을 동시에 얻을 수 없다.** 둘 중 하나를 명시적으로 포기해야 하며, 그 선택은 연구가 대신해줄 수 없다.
+**Key conclusion: with this data, a "large drawdown reduction" and "verified robustness" cannot be had at the same time.** One of the two has to be given up explicitly, and research cannot make that choice for you.
 
-## 8. 운영 권고
+## 8. Operational recommendations
 
-1. **Shadow 기본값을 `fixed_hedge` 20% 로 설정했다**(`configs/shadow.yaml`). 이유는 성과가 좋아서가 아니라 **모든 강건성 검사를 통과하는 유일한 구간이기 때문**이며, 이는 최적화 결과가 아니라 보수적 기본값이다. 위험 선호가 다르면 `strategy.fixed_hedge.ratio` 한 줄로 바꾼다.
+1. **The shadow default was set to `fixed_hedge` 20%** (`configs/shadow.yaml`). The reason is not good performance but that **it is the only band that passes every robustness check**; it is a conservative default, not an optimisation result. If your risk preference differs, change the single line `strategy.fixed_hedge.ratio`.
 
-   > **2026-09-11 — 소유자가 프론티어 전체 표를 검토한 뒤 20% 를 명시적으로 선택했다.**
-   > 선택 근거: 연속으로 역펀딩 −1bp 를 통과하는 구간(10~20%)의 위쪽 끝이고, 낙폭을 실제로
-   > 크게 줄이는 구간(50% 이상, −49% 이하)은 역펀딩 FAIL 에 최악 2년 창 BTC 0.50 이하이기
-   > 때문이다. **이제 20% 는 자리채움 기본값이 아니라 진술된 위험 선호다.** 다만 여전히
-   > 최적화 결과는 아니다 — 그런 것은 존재하지 않는다. 선택 시점의 수치: 낙폭 −69.0%,
-   > 최악 2년 창 BTC 0.794, 상승장 구간 0.919, 하락장 구간 1.146.
+   > **2026-09-11 — after reviewing the full frontier table, the owner explicitly chose 20%.**
+   > Rationale: it is the upper end of the band that contiguously passes −1bp adverse funding (10~20%), while the band
+   > that actually cuts drawdown substantially (50% and above, drawdown no deeper than −49%) FAILs under adverse funding
+   > and has a worst 2-year window BTC of 0.50 or below. **20% is now a stated risk preference, not a placeholder default.**
+   > It is still not an optimisation result, though — no such thing exists. Figures at the time of the choice: drawdown −69.0%,
+   > worst 2-year window BTC 0.794, bull-market segment 0.919, bear-market segment 1.146.
    >
-   > **⚠️ 위 선택 근거는 같은 날 §10 에서 교체되었다.** "연속으로 역펀딩을 통과하는 구간"이라는
-   > 근거가 단일 사건에 오염돼 있었다. 20% 라는 결론 자체는 유지되지만, 이유는 **14개 창 전체에서
-   > 최종 BTC 가 시작 시점에 크게 좌우되지 않는 구간이기 때문**으로 바뀐다(§10.4).
-2. **비율을 올리기 전에 반드시 §6.2 최악 창 수치를 확인할 것.** 85%는 2년 안에 BTC 71.6%를 잃은 창이 실제로 존재한다.
-3. **실현 펀딩을 상시 감시할 것.** 40% 이상 비율은 −1bp/8h 역펀딩이 지속되면 실패한다. 이 조건이 관측되면 V2 펀딩 가드를 켜거나(−1bp까지만 방어) 비율을 낮춘다.
-4. **전체 기간 성적(1.25~1.33)을 근거로 비율을 정하지 말 것.** 그 숫자는 2022년 폭락 한 번에 의존한다.
+   > **⚠️ The rationale above was replaced in §10 on the same day.** The rationale "the band that contiguously passes adverse
+   > funding" was contaminated by a single event. The conclusion of 20% itself stands, but the reason changes to **it being the band
+   > where, across all 14 windows, the final BTC is not heavily determined by the start date** (§10.4).
+2. **Always check the §6.2 worst-window figures before raising the ratio.** At 85%, a window that lost 71.6% of its BTC within 2 years actually exists.
+3. **Monitor realised funding at all times.** Ratios of 40% and above fail if −1bp/8h adverse funding persists. If this condition is observed, switch on the V2 funding guard (it defends only up to −1bp) or lower the ratio.
+4. **Do not set the ratio on the basis of full-period performance (1.25~1.33).** Those numbers depend on the single 2022 crash.
 
-## 9. 남은 한계
+## 9. Remaining limitations
 
-* 표본에 대규모 폭락이 **한 번**뿐이다. 보험형 전략의 기대가치는 이 데이터로 검증 불가능하다.
-* 사전 등록한 목적함수 `score_run` 이 낙폭 축소를 평가하지 못한다(§3). 향후 연구에서는 목적함수를 먼저 고쳐 사전 등록해야 하며, **이번 결과를 근거로 목적함수를 고르면 안 된다.**
-* 워크포워드 폴드는 180일로 짧아 폭락 국면을 포함하는 폴드가 2개뿐이다.
-* §8 미검증 항목(실거래소 접속, 펀딩 공식 실측, 수수료율)은 그대로 남아 있다 — `docs/requirements_audit.md`.
+* The sample contains only **one** large crash. The expected value of an insurance-type strategy cannot be verified with this data.
+* The pre-registered objective function `score_run` cannot evaluate drawdown reduction (§3). Future studies must fix the objective function first and pre-register it, and **must not choose the objective function on the basis of these results.**
+* The walk-forward folds are short, at 180 days, so only 2 folds contain a crash phase.
+* The §8 unverified items (live-exchange connection, measured-live check of the funding formula, fee rate) remain open — `docs/requirements_audit.md`.
 
-**수익을 보장하지 않는다.** 이 연구의 결론은 "최적 비율을 찾았다"가 아니라 **"찾을 수 있는 최적 비율이 없다는 것을 확인했다"** 이다.
+**No profit is guaranteed.** The conclusion of this study is not "we found the optimal ratio" but **"we confirmed that there is no optimal ratio to be found"**.
 
 ---
 
-## 10. 정정 — 판정 기준이 단일 사건에 오염돼 있었다 (2026-09-11)
+## 10. Correction — the verdict criterion was contaminated by a single event (2026-09-11)
 
-재현: `python scripts/window_dispersion.py`
+Reproduce: `python scripts/window_dispersion.py`
 
-### 10.1 무엇이 틀렸나
+### 10.1 What was wrong
 
-`verdict` 의 PASS 조건에 **전체 기간 `btc_growth > 0`** 이 들어 있다(`backtest/metrics.py:243`).
-그런데 §5 가 보여주듯 전체 기간 BTC 증가는 7폴드 중 2폴드, 정확히 하락 국면에서만 나왔다.
-따라서 아래는 전부 **2022년 낙폭 하나의 함수**다.
+The PASS condition of `verdict` includes **full-period `btc_growth > 0`** (`backtest/metrics.py:243`).
+But as §5 shows, full-period BTC growth came from only 2 of the 7 folds — exactly the downturn phases.
+So everything below is **a function of the single 2022 drawdown**.
 
-* §6.1 의 역펀딩 −1bp PASS/FAIL 표
-* 거기서 도출한 **"모든 강건성 검사를 통과하는 구간 = 10~20%"**
-* §8 운영 권고 1번이 그 구간에 기댄 부분
-* 같은 날 §6.1 에 추가했던 "PASS/FAIL 경계가 비단조 → 30·35% 의 PASS 를 믿을 수 없다" 논거
+* The −1bp adverse-funding PASS/FAIL table in §6.1
+* **"The band that passes every robustness check = 10~20%"**, derived from it
+* The part of §8 operational recommendation 1 that relied on that band
+* The argument added to §6.1 on the same day, "the PASS/FAIL boundary is non-monotonic → the PASS at 30·35% cannot be trusted"
 
-여러 검사를 통과한 것처럼 보였지만 실제로는 **같은 사건을 여러 각도에서 다시 물어본 것**이다.
-규칙이 아니라 관측 1건이다. 이 오류는 소유자가 "22년 하나의 사건으로 결정값이 바뀌면 안 된다,
-다른 많은 표본에서 찾아야 한다"고 지적해 드러났다.
+It looked as if several checks had been passed, but in reality it was **the same event being asked about again from several angles**.
+It is not a rule; it is 1 observation. This error came to light when the owner pointed out that "a single event in '22 must not be what changes the chosen value;
+it has to be found across many other samples".
 
-### 10.2 대체 — 14개 창을 전부 쓰는 판정
+### 10.2 Replacement — a verdict that uses all 14 windows
 
-최종 BTC 개수의 **분산**으로 본다. "평균적으로 얼마를 버는가"(표본 1개로는 답할 수 없다)가 아니라
-**"결과가 예측 불가능한 것에 얼마나 좌우되는가"**를 묻는 것이고, 이건 14개 창 전부를 쓴다.
+Look at the **dispersion** of the final BTC count. The question is not "how much does it earn on average" (which cannot be answered with 1 sample) but
+**"how much does the outcome depend on something unpredictable"**, and this uses all 14 windows.
 
-| 비율 | 최악 | 중앙값 | 최고 | 범위폭 | **최고/최악** | 평시 8창 중앙값 | 폭락 6창 중앙값 |
+| Ratio | Worst | Median | Best | Range | **Best/worst** | Median of 8 calm windows | Median of 6 crash windows |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 10% | 0.925 | 0.983 | 1.170 | 0.245 | **1.26배** | 0.941 | 1.071 |
-| 15% | 0.858 | 1.005 | 1.239 | 0.381 | **1.44배** | 0.915 | 1.109 |
-| 20% | 0.794 | 0.983 | 1.339 | 0.545 | **1.69배** | 0.859 | 1.129 |
-| 30% | 0.680 | 0.950 | 1.577 | 0.897 | 2.32배 | 0.787 | 1.196 |
-| 50% | 0.499 | 0.849 | 1.976 | 1.477 | 3.96배 | 0.645 | 1.269 |
-| 85% | 0.284 | 0.698 | 2.811 | 2.527 | **9.91배** | 0.450 | 1.338 |
+| 10% | 0.925 | 0.983 | 1.170 | 0.245 | **1.26×** | 0.941 | 1.071 |
+| 15% | 0.858 | 1.005 | 1.239 | 0.381 | **1.44×** | 0.915 | 1.109 |
+| 20% | 0.794 | 0.983 | 1.339 | 0.545 | **1.69×** | 0.859 | 1.129 |
+| 30% | 0.680 | 0.950 | 1.577 | 0.897 | 2.32× | 0.787 | 1.196 |
+| 50% | 0.499 | 0.849 | 1.976 | 1.477 | 3.96× | 0.645 | 1.269 |
+| 85% | 0.284 | 0.698 | 2.811 | 2.527 | **9.91×** | 0.450 | 1.338 |
 
-창 분류는 손으로 고르지 않고 **창 내부 HODL 낙폭 ≤ −50%** 로 기계적으로 나눴다(폭락 6 / 평시 8).
-창끼리 겹치므로 독립 표본 수는 훨씬 적다(6년 ÷ 2년 ≈ 3).
+The windows were not classified by hand; they were split mechanically by **in-window HODL drawdown ≤ −50%** (crash 6 / calm 8).
+Because the windows overlap, the number of independent samples is much smaller (6 years ÷ 2 years ≈ 3).
 
-**표본이 많은 사실 세 가지:**
+**Three facts backed by many samples:**
 
-1. **모든 비율에서 중앙값이 1.0 이하다**(10%: 0.983 … 85%: 0.698). 헤지의 *전형적* 결과는 BTC 손실이다.
-2. **평시 8창에서는 8창 중 7창이 손실**이고, 비율에 단조 악화한다.
-3. **최고/최악 비가 1.26배(10%)에서 9.91배(85%)로 벌어진다.** 비율을 올릴수록 최종 BTC 개수가
-   *언제 시작했는가* 의 함수가 된다.
+1. **At every ratio the median is 1.0 or below** (10%: 0.983 … 85%: 0.698). The *typical* outcome of hedging is a BTC loss.
+2. **In the 8 calm windows, 7 out of 8 lose**, worsening monotonically with the ratio.
+3. **The best/worst ratio widens from 1.26× (10%) to 9.91× (85%).** The higher the ratio, the more the final BTC count becomes
+   a function of *when you started*.
 
-### 10.3 결정적 관찰 — 폭락이 아니라 진입 시점이 결과를 만든다
+### 10.3 The decisive observation — entry timing, not the crash, makes the outcome
 
-같은 비율로 **같은 2022 에피소드**를 맞아도 결과가 뒤집힌다.
+At the same ratio, even facing **the same 2022 episode**, the outcome is reversed.
 
-| 비율 | 고점 직전 진입(2021-03) | 하락 개시 후 진입(2022-03) | 배수 |
+| Ratio | Entry just before the peak (2021-03) | Entry after the decline began (2022-03) | Multiple |
 |---:|---:|---:|---:|
-| 20% | 1.339 | 0.987 | 1.4배 |
-| 50% | 1.976 | 0.891 | 2.2배 |
-| 85% | **2.811** | **0.731** | **3.8배** |
+| 20% | 1.339 | 0.987 | 1.4× |
+| 50% | 1.976 | 0.891 | 2.2× |
+| 85% | **2.811** | **0.731** | **3.8×** |
 
-**보상을 만든 것은 "폭락이 일어났다"가 아니라 "고점 전에 헤지돼 있었다"이다.** 그건 타이밍이고,
-V1 과 V4 가 이 전략에 타이밍 우위가 없다고 결론지었다. 따라서 **85%의 2.811 은 기대할 수 있는
-전략 성과가 아니라 시작일 추첨 결과다.** 높은 비율의 매력은 사후에만 보인다.
+**What produced the payoff was not "a crash happened" but "the hedge was on before the peak".** That is timing, and
+V1 and V4 concluded that this strategy has no timing edge. Therefore **the 2.811 at 85% is not a strategy result one can
+expect; it is the outcome of a start-date lottery.** The appeal of a high ratio is visible only in hindsight.
 
-부수적으로, 2024-03 / 2024-06 시작 창은 창 내부 HODL 낙폭이 −49.6% / −51.1% 로 **2022 와 다른
-두 번째 에피소드**를 담고 있다(−50% 문턱 때문에 앞의 것은 평시로 분류됐다 — 문턱 인공물이다).
-그 창에서도 헤지는 이익이었지만(20%: 1.010 / 1.049), 배수는 2022 만큼 크지 않다.
+Incidentally, the windows starting 2024-03 / 2024-06 have in-window HODL drawdowns of −49.6% / −51.1% and contain **a second
+episode, distinct from 2022** (because of the −50% threshold, the former was classified as calm — a threshold artefact).
+In those windows the hedge also paid off (20%: 1.010 / 1.049), but the multiple is not as large as in the 2022 episode.
 
-### 10.4 그래서 20% 는 유효한가
+### 10.4 So is 20% valid?
 
-**유효하다. 다만 §8 에 적었던 이유 때문이 아니다.**
+**It is. But not for the reason §8 gave.**
 
-* 폐기: "모든 강건성 검사를 통과하는 유일한 구간이라서" — 그 검사가 단일 사건의 함수였다.
-* 대체: **10~20% 는 최종 BTC 가 시작 시점에 크게 좌우되지 않는 구간이다**(최고/최악 1.26~1.69배).
-  그 위로 가면 BTC 개수가 우리가 갖지 못한 타이밍 능력에 대한 베팅이 된다.
+* Discarded: "because it is the only band that passes every robustness check" — that check was a function of a single event.
+* Replacement: **10~20% is the band where the final BTC is not heavily determined by the start date** (best/worst 1.26~1.69×).
+  Above it, the BTC count becomes a bet on a timing ability we do not have.
 
-이 판정은 14개 창을 전부 쓰므로 §10.1 의 오염이 없다. **다만 여전히 구간이지 최적값이 아니다.**
-10% 와 20% 중 무엇이 나은지는 데이터가 말해주지 않는다 — 10% 가 더 예측 가능하고, 20% 가
-"결과가 추첨이 되지 않는 범위에서 살 수 있는 보험의 최대치"다. 15% 의 중앙값이 1.005 로 유일하게
-1.0 을 넘지만 **인접 격자 잡음 안이므로 근거로 쓰지 않는다**(§4).
+This verdict uses all 14 windows, so it is free of the §10.1 contamination. **But it is still a band, not an optimum.**
+The data does not say whether 10% or 20% is better — 10% is more predictable, and 20% is
+"the most insurance you can buy without the outcome becoming a lottery". The 15% median, at 1.005, is the only one
+above 1.0, but **it is within adjacent-grid noise, so it is not used as evidence** (§4).
 
-### 10.5 남는 한계 — 이것으로도 해결되지 않는 것
+### 10.5 Remaining limitation — what this still does not solve
 
-분산 판정은 **비용과 의존도**를 표본 여러 개로 측정한다. **편익(폭락 시 지급)은 여전히 사건
-1~2개다.** 이 데이터로 보험의 기대가치를 검증할 방법은 없다.
+The dispersion verdict measures **cost and dependence** across many samples. **The benefit (the payout in a crash) still rests on
+1~2 events.** There is no way to verify the expected value of the insurance with this data.
 
-진짜 해법은 표본 기간을 늘리는 것이다: 2018년(−84%), 2014년(−85%), 2020-03(−50%). 다만
-COIN-M BTCUSD_PERP 는 2020-08 에 상장되어 그 이전 **실제 펀딩 데이터가 없다.**
+The real fix is to extend the sample period: 2018 (−84%), 2014 (−85%), 2020-03 (−50%). However,
+COIN-M BTCUSD_PERP was listed in 2020-08 and therefore **has no actual funding data** from before then.
 
-> **시도했고 실패했다 (2026-09-11)**: Binance USDT-M `BTCUSDT`(2019-09~)를 프록시로 쓰려
-> 했으나 사전 등록한 관문 G1~G3 을 **셋 다 실패**했다 —
-> [docs/strategy_v5_sample_extension.md](strategy_v5_sample_extension.md) §7. 결정적으로
-> **정산 6건 중 1건 꼴로 두 계약의 펀딩 부호가 반대**였고(17.1%), 갈라지는 지점이 하필
-> 폭락 국면이었다(2021-12-04: COIN-M −12bp vs USDT-M +0.6bp). **이 경로로는 표본을 늘릴 수
-> 없다.** 따라서 이 절의 한계는 해결되지 않은 채 남는다.
+> **Tried, and failed (2026-09-11)**: an attempt to use Binance USDT-M `BTCUSDT` (2019-09~) as a proxy
+> **failed all three** of the pre-registered gates G1~G3 —
+> [docs/strategy_v5_sample_extension.md](strategy_v5_sample_extension.md) §7. Decisively,
+> **in about 1 of every 6 settlements the two contracts' funding had opposite signs** (17.1%), and the points of divergence fell,
+> of all times, in crash phases (2021-12-04: COIN-M −12bp vs USDT-M +0.6bp). **This route cannot extend
+> the sample.** The limitation in this section therefore remains unresolved.

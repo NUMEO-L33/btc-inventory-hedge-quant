@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""V5 §3 관문 — USDT-M 펀딩 요율이 COIN-M 요율을 대신할 수 있는가.
+"""V5 §3 gate — can the USDT-M funding rate stand in for the COIN-M rate?
 
-겹치는 구간(두 심볼 모두 실제 데이터가 있는 기간)에서 두 요율 시계열을 직접 대조한다.
-합격 기준 G1~G3 과 그 임계값은 `docs/strategy_v5_sample_extension.md` §3 에 **데이터를 보기
-전에** 기록했다. 이 스크립트는 그 기준을 그대로 적용할 뿐이며, 임계값을 인자로 받지 않는다 —
-받을 수 있게 만들면 실패했을 때 손이 간다.
+Compares the two rate series directly over the overlap (the period in which both symbols have
+real data). The pass criteria G1–G3 and their thresholds were recorded in
+`docs/strategy_v5_sample_extension.md` §3 **before looking at the data**. This script only applies
+those criteria as written and does not take the thresholds as arguments — if it accepted them, a
+failure would tempt someone to change them.
 
-G2 메모: 고정 비율 헤지에서는 정산당 펀딩(BTC) = ratio x equity_btc x rate 로 **마크가격이
-약분된다**(contracts = ratio x equity x mark / CV, funding = contracts x CV / mark x rate).
-따라서 누적 펀딩 비교는 요율 합의 비교와 같고, 마크가격 출처 차이가 끼어들지 않는다.
+G2 note: for a fixed-ratio hedge, funding per settlement (BTC) = ratio x equity_btc x rate, so
+**the mark price cancels out** (contracts = ratio x equity x mark / CV, funding = contracts x CV /
+mark x rate). Comparing cumulative funding is therefore the same as comparing the sums of the
+rates, and differences in the mark-price source do not enter.
 
     python scripts/v5_proxy_gate.py
 """
@@ -21,7 +23,7 @@ import statistics as st
 from decimal import Decimal
 from pathlib import Path
 
-# docs/strategy_v5_sample_extension.md §3 — 사전 등록된 임계값. 여기서만 정의한다.
+# docs/strategy_v5_sample_extension.md §3 — pre-registered thresholds. Defined here and nowhere else.
 G1_MAX_MEDIAN_ABS_DIFF = Decimal("0.00002")  # 0.2bp per 8h
 G2_MAX_REL_ERROR = Decimal("0.15")
 G3_MIN_SIGN_AGREEMENT = Decimal("0.95")
@@ -63,7 +65,7 @@ def main() -> int:
     c, u = bucket(coinm), bucket(usdtm)
     common = sorted(set(c) & set(u))
     if not common:
-        raise SystemExit("두 시계열에 겹치는 정산 시각이 없다")
+        raise SystemExit("the two series have no settlement times in common")
 
     diffs = [c[t] - u[t] for t in common]
     abs_diffs = sorted(abs(d) for d in diffs)
@@ -88,29 +90,31 @@ def main() -> int:
 
         return datetime.fromtimestamp(t / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
-    print(f"겹치는 정산: {len(common)}건  ({ms(common[0])} ~ {ms(common[-1])} UTC)")
-    print(f"COIN-M 전체 {len(c)}건 / USDT-M 전체 {len(u)}건\n")
+    print(f"Overlapping settlements: {len(common)}  ({ms(common[0])} ~ {ms(common[-1])} UTC)")
+    print(f"COIN-M total {len(c)} / USDT-M total {len(u)}\n")
 
     print(
-        f"G1 요율차 중앙절대편차 : {median_abs:.8f}  (<= {G1_MAX_MEDIAN_ABS_DIFF}) -> {'PASS' if g1 else 'FAIL'}"
+        f"G1 median abs rate difference       : {median_abs:.8f}  (<= {G1_MAX_MEDIAN_ABS_DIFF}) -> {'PASS' if g1 else 'FAIL'}"
     )
     print(
-        f"G2 누적펀딩 상대오차   : {rel_err:.4%}      (<= {G2_MAX_REL_ERROR:.0%})   -> {'PASS' if g2 else 'FAIL'}"
+        f"G2 cumulative funding relative error: {rel_err:.4%}      (<= {G2_MAX_REL_ERROR:.0%})   -> {'PASS' if g2 else 'FAIL'}"
     )
     print(
-        f"G3 부호 일치율         : {agreement:.4%}      (>= {G3_MIN_SIGN_AGREEMENT:.0%})   -> {'PASS' if g3 else 'FAIL'}"
+        f"G3 sign agreement rate              : {agreement:.4%}      (>= {G3_MIN_SIGN_AGREEMENT:.0%})   -> {'PASS' if g3 else 'FAIL'}"
     )
-    print(f"\n판정: {verdict}")
+    print(f"\nVerdict: {verdict}")
 
-    print("\n참고 수치 (판정에는 쓰지 않는다)")
-    print(f"  20% 헤지 누적 펀딩  COIN-M {fund_c:+.6f} BTC / USDT-M {fund_u:+.6f} BTC")
+    print("\nReference figures (not used for the verdict)")
     print(
-        f"  요율차 분위수  p50 {abs_diffs[len(abs_diffs) // 2]:.8f}"
+        f"  cumulative funding at a 20% hedge  COIN-M {fund_c:+.6f} BTC / USDT-M {fund_u:+.6f} BTC"
+    )
+    print(
+        f"  rate-difference quantiles  p50 {abs_diffs[len(abs_diffs) // 2]:.8f}"
         f"  p90 {abs_diffs[int(len(abs_diffs) * 0.9)]:.8f}"
         f"  p99 {abs_diffs[int(len(abs_diffs) * 0.99)]:.8f}"
         f"  max {abs_diffs[-1]:.8f}"
     )
-    print(f"  평균 요율  COIN-M {sum_c / len(common):.8f} / USDT-M {sum_u / len(common):.8f}")
+    print(f"  mean rate  COIN-M {sum_c / len(common):.8f} / USDT-M {sum_u / len(common):.8f}")
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +142,7 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    print(f"\n기록: {out_dir / 'proxy_gate.json'}")
+    print(f"\nWritten: {out_dir / 'proxy_gate.json'}")
     return 0 if verdict == "PASS" else 1
 
 

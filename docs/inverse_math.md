@@ -1,130 +1,130 @@
-# Inverse(COIN-M) 계약 수학
+# Inverse (COIN-M) contract math
 
-구현: `src/btc_inventory_quant/domain/inverse_contract.py` (모두 `Decimal`).
-근거: `docs/exchange_api_verification.md` §8~§11 (공식 문서 인용).
+Implementation: `src/btc_inventory_quant/domain/inverse_contract.py` (all `Decimal`).
+Source: `docs/exchange_api_verification.md` §8~§11 (quotations from the official docs).
 
-## 1. 계약 정의
+## 1. Contract definition
 
-* BTCUSD_PERP 1계약 = **100 USD** (`exchangeInfo.contractSize`, 공식 FAQ "Each BTC futures contract represents 100 USD"). 코드에 고정하지 않고 exchangeInfo에서 읽는다.
-* 수량 단위: 정수 계약(`quantityPrecision=0`, `LOT_SIZE.stepSize=1`, `MARKET_LOT_SIZE.maxQty=60000`).
-* 가격 단위: `tickSize=0.1`. 마진·정산 자산: BTC.
+* 1 BTCUSD_PERP contract = **100 USD** (`exchangeInfo.contractSize`; official FAQ: "Each BTC futures contract represents 100 USD"). It is not hard-coded; it is read from exchangeInfo.
+* Quantity unit: whole contracts (`quantityPrecision=0`, `LOT_SIZE.stepSize=1`, `MARKET_LOT_SIZE.maxQty=60000`).
+* Price unit: `tickSize=0.1`. Margin and settlement asset: BTC.
 
-## 2. 손익
+## 2. Profit and loss
 
-숏 `c` 계약, 진입가 `Pe`, 청산가 `Px`, 계약가치 `CV`:
+Short of `c` contracts, entry price `Pe`, exit price `Px`, contract value `CV`:
 
 ```
 PnL_BTC = c × CV × (1/Px − 1/Pe)
 ```
 
-미실현 손익은 **Mark Price** 로 계산한다: `UPnL = c × CV × (1/Mark − 1/Pe)`.
+Unrealized PnL is computed with the **Mark Price**: `UPnL = c × CV × (1/Mark − 1/Pe)`.
 
-검증 사례 (단위 테스트 `tests/unit/test_inverse_math.py`):
+Verification cases (unit test `tests/unit/test_inverse_math.py`):
 
-| 사례 | 계산 | 결과 |
+| Case | Calculation | Result |
 |---|---|---|
-| 1 BTC, 진입 100,000, 명목 100,000 USD(1,000계약), 가격 50,000 | 1000×100×(1/50000−1/100000) | +1 BTC → 총 2 BTC = 100,000 USD |
-| 같은 조건, 가격 200,000 | 1000×100×(1/200000−1/100000) | −0.5 BTC → 총 0.5 BTC = 100,000 USD |
+| 1 BTC, entry 100,000, notional 100,000 USD (1,000 contracts), price 50,000 | 1000×100×(1/50000−1/100000) | +1 BTC → total 2 BTC = 100,000 USD |
+| Same conditions, price 200,000 | 1000×100×(1/200000−1/100000) | −0.5 BTC → total 0.5 BTC = 100,000 USD |
 
-즉 100% 헤지는 USD 가치를 고정하는 **합성 달러**이며, 수익은 헤지율을 낮췄다 높이는 과정에서만 발생한다.
+In other words, a 100% hedge is a **synthetic dollar** that fixes the USD value; profit arises only in the process of lowering the hedge ratio and raising it again.
 
-## 3. 명목가치·목표 계약수·유효 헤지율
+## 3. Notional value, target contract count, effective hedge ratio
 
 ```
 short_notional_usd      = |c| × CV
 notional_btc            = |c| × CV / price
 target_short_notional   = equity_btc × mark × target_ratio
-target_contracts        = floor(target_short_notional / CV)   (이후 stepSize 로 내림)
+target_contracts        = floor(target_short_notional / CV)   (then rounded down to stepSize)
 effective_hedge_ratio   = |c| × CV / (equity_btc × mark)
 equity_btc              = wallet_balance_btc + UPnL(mark)
 equity_usd              = equity_btc × mark
 ```
 
-`floor` 로 인해 항상 목표 이하로 반올림된다(보수적). 1계약(100 USD) 미만은 거래하지 않는다.
+Because of `floor`, the result is always rounded to at or below the target (conservative). Anything smaller than 1 contract (100 USD) is not traded.
 
-## 4. 평균 진입가 (부분 진입)
+## 4. Average entry price (partial entries)
 
-Inverse 계약의 BTC 노출은 `q × CV / P` 이므로 평균가는 **조화평균**이다.
+The BTC exposure of an inverse contract is `q × CV / P`, so the average price is a **harmonic mean**.
 
 ```
 avg_entry = Σ q_i / Σ (q_i / P_i)
 ```
 
-예: 100계약@100,000 + 100계약@50,000 → 200 / (0.001 + 0.002) = **66,666.67** (산술평균 75,000 은 오답).
-부분 청산은 평균가를 바꾸지 않으며, 실현손익 = `closed × CV × (1/Px − 1/avg)`.
-FIFO lot 방식과 평균가 방식은 전체 청산 시 합계가 동일함을 테스트로 확인한다.
+Example: 100 contracts @ 100,000 + 100 contracts @ 50,000 → 200 / (0.001 + 0.002) = **66,666.67** (the arithmetic mean 75,000 is wrong).
+A partial close does not change the average price; realized PnL = `closed × CV × (1/Px − 1/avg)`.
+A test confirms that the FIFO-lot method and the average-price method give the same total on a full close.
 
-## 5. 수수료 (공식 FAQ 검증)
+## 5. Fees (verified against the official FAQ)
 
 ```
 fee_btc = |c| × CV / trade_price × fee_rate
 ```
-공식 예시: 1계약@8,800 → 0.01136364 BTC × 0.04% = 0.00000454 BTC (테스트 포함).
-기본 요율(백테스트): Taker 0.05%, Maker 0.02% — 보수적 값. 실제 요율은 `GET /dapi/v1/commissionRate` 로 조회(문서에서 현재 VIP0 미확인).
+Official example: 1 contract @ 8,800 → 0.01136364 BTC × 0.04% = 0.00000454 BTC (covered by a test).
+Default rates (backtest): Taker 0.05%, Maker 0.02% — conservative values. The actual rate is queried with `GET /dapi/v1/commissionRate` (the current VIP0 rate could not be confirmed in the docs).
 
-## 6. 펀딩비 (**VERIFIED — 실측 2026-09-04, ±8.1% 정밀도**)
+## 6. Funding fee (**VERIFIED — measured live 2026-09-04, ±8.1% precision**)
 
 ```
 funding_btc = −sign(c) × |c| × CV / mark_price × funding_rate
 ```
-* 펀딩비율 > 0: 롱이 숏에게 지급 → 숏은 **수취**(+). < 0 이면 숏이 지급.
-* 정산 시각: 00:00 / 08:00 / 16:00 UTC (심볼별 주기는 `fundingInfo`, `premiumIndex.nextFundingTime` 로 확인).
- * "÷ Mark Price" 형태의 COIN-M 전용 원문은 여전히 공식 문서에서 찾지 못했다(수수료 FAQ 의 "(계약수×계약크기)/가격" 명목가치 정의와 펀딩 FAQ 의 "명목가치×비율"을 결합한 것). **그러나 실제 정산과의 대조로 확인됐다.**
+* Funding rate > 0: longs pay shorts → the short **receives** (+). If < 0: the short pays.
+* Settlement times: 00:00 / 08:00 / 16:00 UTC (the per-symbol interval is checked via `fundingInfo` and `premiumIndex.nextFundingTime`).
+ * A COIN-M-specific source text in the "÷ Mark Price" form has still not been found in the official docs (the formula combines the fee FAQ's notional-value definition "(number of contracts × contract size)/price" with the funding FAQ's "notional value × rate"). **However, it has been confirmed by comparison with an actual settlement.**
 
-### 실측 검증 (2026-09-04T00:00:00Z, 데모 환경)
+### Measured-live verification (2026-09-04T00:00:00Z, demo environment)
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 요율 (정산 828초 전 `premiumIndex` 로 캡처) | 0.00010000 |
-| 마크가격 | 81,206.99154563 |
-| 계약수 | −1 (숏) |
-| **모델값** | **0.0000001231421** |
-| **거래소 실제 정산액** | **0.00000012** |
-| 차이 | −3.14e-9 |
-| 거래소 보고 양자화 단위 | 1e-8 |
-| 판정 | 차이 < 단위 → **VERIFIED** |
+| Rate (captured via `premiumIndex` 828 seconds before settlement) | 0.00010000 |
+| Mark price | 81,206.99154563 |
+| Contracts | −1 (short) |
+| **Model value** | **0.0000001231421** |
+| **Actual settlement amount from the exchange** | **0.00000012** |
+| Difference | −3.14e-9 |
+| Quantization unit of the exchange's reports | 1e-8 |
+| Verdict | difference < unit → **VERIFIED** |
 
-재현: `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml --snapshot-rate` (정산 직전) → 정산 후 `verify-funding --window-hours 12`.
+Reproduction: `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml --snapshot-rate` (just before settlement) → after settlement, `verify-funding --window-hours 12`.
 
-**이 검증의 정밀도는 ±8.12% 다.** 거래소가 `FUNDING_FEE` 를 소수점 8자리에서 절삭 보고하는데, 1계약 포지션의 펀딩액이 1.23e-7 BTC 라 절삭 오차가 전체의 8%를 차지하기 때문이다. 따라서 확인된 것은:
+**The precision of this verification is ±8.12%.** The exchange reports `FUNDING_FEE` truncated at 8 decimal places, and the funding amount on a 1-contract position is 1.23e-7 BTC, so the truncation error accounts for 8% of the total. What has therefore been confirmed is:
 
-* ✅ **공식의 구조** — `÷ mark_price` 가 맞다(없으면 77,000배, 곱하면 6e9배 어긋난다)
-* ✅ **부호 규약** — 요율 > 0 일 때 숏이 수취
-* ✅ **계약가치 100 USD 적용**
-* ⚠️ **8% 이내의 미세 오차는 배제하지 못한다** (예: 마크 대신 인덱스 사용, 정산 시점 마크의 미세한 차이)
+* ✅ **The structure of the formula** — `÷ mark_price` is correct (without it the result would be off by a factor of 77,000; with multiplication instead, by a factor of 6e9)
+* ✅ **The sign convention** — the short receives when the rate > 0
+* ✅ **Application of the 100 USD contract value**
+* ⚠️ **Small errors within 8% cannot be ruled out** (e.g., use of the index instead of the mark, a slight difference in the mark at the settlement instant)
 
-더 조이려면 포지션을 키우면 된다 — 펀딩액은 계약수에 비례해 커지는데 보고 단위는 1e-8 로 고정이므로, 8계약이면 ±1.0%, 100계약이면 ±0.08% 다.
+To tighten this, enlarge the position — the funding amount grows in proportion to the number of contracts while the reporting unit stays fixed at 1e-8; with 8 contracts the precision is ±1.0%, with 100 contracts ±0.08%.
 
-**주의**: 데모 환경은 펀딩을 정산하면서도 `fundingRate` 이력을 공개하지 않는다(`docs/exchange_api_verification.md` §16). 프로덕션 요율을 대입하면 데모 자체 요율(0.01%)과 달라(당시 0.00317%) 2.9배 MISMATCH 가 나온다 — 반드시 `--snapshot-rate` 로 같은 환경의 요율을 미리 잡아야 한다.
-* 백테스트 근사: 2023-11-01 이후는 펀딩 레코드의 `markPrice` 를 사용, 그 이전은 해당 일봉 마크가격(00:00 은 시가, 08:00/16:00 은 시가·종가 선형보간)을 사용한다. 오차는 펀딩 금액의 수 % 이내(펀딩 자체가 명목가치의 ~0.01%).
+**Caution**: the demo environment settles funding but does not publish its `fundingRate` history (`docs/exchange_api_verification.md` §16). Plugging in the production rate (0.00317% at the time), which differs from the demo's own rate (0.01%), yields a 2.9× MISMATCH — you must capture the same environment's rate in advance with `--snapshot-rate`.
+* Backtest approximation: from 2023-11-01 onward the funding record's `markPrice` is used; before that, the mark price from that day's daily candle is used (00:00 takes the open; 08:00/16:00 are linearly interpolated between open and close). The error is within a few % of the funding amount (funding itself is ~0.01% of notional).
 
-## 7. 유지증거금·청산 (PARTIAL)
+## 7. Maintenance margin and liquidation (PARTIAL)
 
 ```
 maint_margin_btc = |c| × CV / price × MMR − cum
 ```
-공식 FAQ 예시: 100계약@25,000, MMR 0.4% → 0.0016 BTC (테스트 포함).
+Official FAQ example: 100 contracts @ 25,000, MMR 0.4% → 0.0016 BTC (covered by a test).
 
-단일 숏, Cross 마진, 다른 포지션 없음일 때 청산가 추정:
+Liquidation price estimate for a single short, Cross margin, and no other positions:
 
 ```
 wallet + c·CV·(1/P − 1/Pe) = c·CV/P·MMR − cum
 → P_liq = c·CV·(1 − MMR) / (c·CV/Pe − wallet − cum)
 ```
-분모 ≤ 0 (즉 `wallet ≥ c·CV/Pe`, 유효 레버리지 ≤ 1) 이면 **청산가가 존재하지 않는다**.
-본 전략은 헤지율 ≤ 85%, 유효 레버리지 ≤ 1 이므로 가격이 아무리 올라도 이론상 청산되지 않는다:
+If the denominator ≤ 0 (i.e., `wallet ≥ c·CV/Pe`, effective leverage ≤ 1), **no liquidation price exists**.
+This strategy runs with hedge ratio ≤ 85% and effective leverage ≤ 1 and is therefore, in theory, never liquidated no matter how far the price rises:
 
 ```
 equity(P) − MM(P) = E0(1−h) + (h·E0·P0/P)(1 − MMR) > 0   (h < 1)
 ```
-단, 음(−)의 펀딩 누적과 수수료가 wallet 을 줄이므로 실제로는 거래소의 `positionRisk.liquidationPrice` 를 1차 소스로 감시하고 이 추정치는 보조로 쓴다.
+However, accumulated negative (−) funding and fees reduce the wallet, so in practice the exchange's `positionRisk.liquidationPrice` is monitored as the primary source and this estimate is used as a secondary one.
 
-## 8. 85% 헤지에서 가격 상승 시
+## 8. Price rise under an 85% hedge
 
-850계약(85,000 USD)@100,000, 가격 → ∞: 손실 상한 = 0.85 BTC, 자산 → 0.15 BTC. 포지션 부호는 가격 변동으로 바뀌지 않으며(계약수 불변), 유효 헤지율은 1 미만으로 감소한다. BUY 주문은 항상 `qty ≤ 현재 숏` 이어야 하며 초과 시 `PositionFlipError` / `RiskLimitViolation(BUY_EXCEEDS_SHORT)`.
+850 contracts (85,000 USD) @ 100,000, price → ∞: loss cap = 0.85 BTC, equity → 0.15 BTC. The sign of the position does not change with price moves (the contract count is unchanged), and the effective hedge ratio decreases to below 1; a BUY order must always satisfy `qty ≤ current short`, and if it exceeds the short: `PositionFlipError` / `RiskLimitViolation(BUY_EXCEEDS_SHORT)`.
 
-## 9. 반올림 규칙
+## 9. Rounding rules
 
-* 계약수: 항상 내림(`ROUND_DOWN`).
-* BTC 금액 표시/원장: 8자리(`ROUND_HALF_EVEN`), 내부 계산은 전체 정밀도 유지.
-* 거래소 실측 값(체결 수수료·펀딩)이 내부 계산과 1 satoshi 이상 차이나면 reconciliation 경고.
+* Contract count: always rounded down (`ROUND_DOWN`).
+* BTC amounts for display/ledger: 8 decimal places (`ROUND_HALF_EVEN`); internal calculations keep full precision.
+* If a value measured live on the exchange (fill fees, funding) differs from the internal calculation by 1 satoshi or more, a reconciliation warning is raised.

@@ -2,123 +2,121 @@
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB) ![mypy](https://img.shields.io/badge/mypy-strict-2A6DB2) ![License](https://img.shields.io/badge/license-MIT-lightgrey) ![Status](https://img.shields.io/badge/status-paper%20%2F%20demo%20only-orange)
 
-비트코인을 **팔지 않고**, 바이낸스 COIN-M 인버스 무기한 선물(BTCUSD_PERP) 숏으로 **USD 낙폭을 줄이는** 헤지 시스템입니다.
-연구(백테스트·통계 검정) → 실행 엔진 → 무인 운영까지 한 저장소에 담았고, 성과는 언제나 **BTC 수량**과 **USD 가치·최대 낙폭** 두 축으로 함께 평가합니다.
+A hedging system that **reduces the USD drawdown of a bitcoin holding without selling it**, by shorting Binance COIN-M inverse perpetual futures (BTCUSD_PERP).
+Research (backtests and statistical tests), the execution engine and unattended operation live in one repository, and performance is always judged on two axes at once: **BTC quantity** and **USD value / maximum drawdown**.
 
-*A BTC inventory-hedge research and execution system: COIN-M inverse perpetual shorts that cut USD drawdown without selling BTC — pre-registered research (no timing edge found), risk-guarded execution, unattended paper/demo operation.*
-
-## 한눈에 보기
+## At a glance
 
 | | |
 |---|---|
-| **문제** | BTC 장기 보유는 가격 변동을 그대로 떠안는다. 백테스트 구간(2021.03–2026.09) HODL 의 USD 최대 낙폭 **−76.7%** |
-| **방법** | 보유 BTC 를 증거금으로 BTCUSD_PERP 를 고정 USD 명목만큼 숏 → USD 노출이 (1 − 헤지비율)배로 줄고, 숏이 받는 펀딩비가 BTC 로 쌓인다 |
-| **연구 결론** | 사전 등록 연구 4라운드 모두 **"타이밍 엣지 없음"**. 최적 정적 비율도 없음. 남는 효과는 낙폭 축소와 펀딩 캐리(20% 기준 연 약 1.1%) |
-| **채택** | **20% 고정 헤지** — 수익 극대화가 아니라 시작 시점 의존성이 가장 낮아서(최종 BTC 최고/최악 1.69배, 85% 헤지는 9.91배) |
-| **운영** | 2026-09 부터 macOS 데몬으로 무인 운영 — Shadow(실시세·실펀딩 위 가상 1 BTC) + Testnet(바이낸스 데모 계좌, 실제 서명 API) |
-| **운영 결과** | 페이퍼 09-11 → 11-12: BTC **−4.3%** 동안 포트폴리오 **−3.2%**, BTC 보유량 **+1.1%**, HODL 대비 **+$826**, 최대 낙폭 −12.1%(HODL −14.9%) |
-| **한계** | 폭락 표본이 1~2건이라 방어 효과의 기대값은 통계로 검증할 수 없다. 실계좌 수수료·체결 미검증. 수익을 보장하지 않는다 |
+| **Problem** | Holding BTC long term means carrying its full price risk. Over the backtest window (2021-03 → 2026-09), HODL's maximum USD drawdown was **−76.7%** |
+| **Method** | Use the BTC holding as margin and short BTCUSD_PERP for a fixed USD notional → USD exposure shrinks to (1 − hedge ratio)×, and the funding the short receives accrues in BTC |
+| **Research verdict** | All four pre-registered research rounds: **"no timing edge"**. No optimal static ratio either. What remains is drawdown reduction and funding carry (about 1.1% a year at a 20% hedge) |
+| **Choice** | **A fixed 20% hedge** — not to maximise return, but because it depends least on the start date (best/worst final BTC 1.69×; 9.91× at an 85% hedge) |
+| **Operation** | Running unattended as macOS daemons since 2026-09 — Shadow (a 1 BTC paper account on live prices and live funding) + Testnet (Binance demo account, real signed API) |
+| **Live results** | Paper, 09-11 → 11-12: while BTC moved **−4.3%**, the portfolio moved **−3.2%**; BTC holdings **+1.1%**; **+$826** vs HODL; maximum drawdown −12.1% (HODL −14.9%) |
+| **Limits** | With only 1–2 crashes in the sample, the expected value of the protection cannot be tested statistically. Live-account fees and fills are unverified. No profit is guaranteed |
 
-## 1. 헤지 구조
+## 1. How the hedge works
 
-인버스 계약은 1계약 = 100 USD 이고 증거금과 손익이 BTC 로 정산된다. 보유 자산 $E_0$ (USD) 에 대해 명목 $N = h \cdot E_0$ 만큼 숏을 잡으면, 가격이 $P_0 \to P$ 로 움직일 때
+One inverse contract is 100 USD, and margin and P&L settle in BTC. Against a holding worth $E_0$ (USD), shorting a notional $N = h \cdot E_0$ means that when the price moves $P_0 \to P$:
 
 $$V(P) = E_0 \left[ (1-h)\,\frac{P}{P_0} + h \right]$$
 
-즉 USD 노출이 $(1-h)$ 배로 **선형으로** 줄어든다($h = 20\%$ → 0.8배). 같은 움직임에서 BTC 수량은 하락장에서 늘고 상승장에서 준다 — 헤지의 비용은 상승분을 덜 가져가는 것이다. 숏은 펀딩비가 양수인 대부분의 기간에 펀딩을 받는다. 계약 수학(손익·평균가·수수료·펀딩·청산)은 [docs/inverse_math.md](docs/inverse_math.md).
+so USD exposure shrinks **linearly** to $(1-h)$× (0.8× at $h = 20\%$). Over the same moves, the BTC quantity grows in falling markets and shrinks in rising ones — the cost of the hedge is giving up part of the upside. The short collects funding during the long stretches when the funding rate is positive. Contract math (P&L, average price, fees, funding, liquidation): [docs/inverse_math.md](docs/inverse_math.md).
 
-실운영에서 확인: 10-18 이후 BTC −9.06% 동안 포트폴리오 −7.21% — 설계한 0.8배 그대로.
+Confirmed in live operation: from 10-18, BTC −9.06% while the portfolio moved −7.21% — the designed 0.8×.
 
-## 2. 연구 결과 (2021-03-10 → 2026-09-01, 실데이터, 비용·펀딩 반영)
+## 2. Research results (2021-03-10 → 2026-09-01, real data, costs and funding included)
 
-| 전략 | 최종 BTC | USD CAGR | USD MDD | 거래 | 판정 |
+| Strategy | Final BTC | USD CAGR | USD MDD | Trades | Verdict |
 |---|---|---|---|---|---|
-| HODL | 1.000 | +6.4% | −76.7% | 0 | 기준 |
-| 고정 50% 숏 | 1.246 | +10.8% | −48.7% | 11 | PASS |
-| 고정 100% 숏 | 1.172 | +9.6% | −4.3% | 9 | PASS |
-| EMA200 단순 | 1.071 | +7.8% | −50.6% | 165 | PASS |
-| 동적 헤지 V1 | 1.109 | +8.5% | −47.1% | 243 | PASS(전기간) / **검증구간 FAIL** |
+| HODL | 1.000 | +6.4% | −76.7% | 0 | Baseline |
+| Fixed 50% short | 1.246 | +10.8% | −48.7% | 11 | PASS |
+| Fixed 100% short | 1.172 | +9.6% | −4.3% | 9 | PASS |
+| EMA200 simple | 1.071 | +7.8% | −50.6% | 165 | PASS |
+| Dynamic hedge V1 | 1.109 | +8.5% | −47.1% | 243 | PASS (full period) / **FAIL (validation)** |
 
-정적 헤지가 HODL 보다 나아 보이는 전체 기간 성적은 2022년 폭락 한 번과 펀딩 수취에 크게 의존한다(V3). 그래서 아래 다섯 라운드는 "어떤 효과가 우연이 아닌가" 를 묻는 데 집중했다. 판정 기준은 결과를 보기 전에 고정했다.
+The full-period results that make static hedging look better than HODL depend heavily on a single crash (2022) and on funding received (V3). So the five rounds below ask which effects are not chance. The verdict criteria were fixed before looking at the results.
 
-| 라운드 | 질문 | 결과 | 문서 |
+| Round | Question | Result | Doc |
 |---|---|---|---|
-| V1 | 레짐 기반 동적 헤지에 타이밍 알파가 있나 | 전기간 PASS, **검증 구간 FAIL**. BTC 순증가 0.109 중 펀딩이 0.125 — 타이밍 손익은 수수료를 넘지 못함 | [strategy_spec](docs/strategy_spec.md) §5 |
-| V2 | 펀딩 가드를 붙인 동적 레짐 | 정적 헤지보다 모든 축에서 열등 → **기각** | [strategy_v2](docs/strategy_v2.md) |
-| V3 | 정적 비율 0~85% 전수 탐색 | **최적 비율 없음**. 낙폭 1%p 를 줄일 때마다 BTC 약 0.33%(180일)를 내는 선형 프론티어 — 알파가 아니라 보험 | [strategy_v3](docs/strategy_v3_static_ratio.md) |
-| V4 | 무작위·블록 셔플 대조군, 검정 15개에 Šidák 보정(α = 0.00341) | 보정을 통과한 효과 **0건**. 보고했던 승률의 Wilson 95% 구간이 모두 0.5 를 포함 | [strategy_v4](docs/strategy_v4_control_arms.md) |
-| V5 | USDT-M 데이터로 폭락 표본 확장 | 사전 등록 관문 3개 **모두 FAIL** → 본 분석 없이 중단. 표본 한계는 남는다 | [strategy_v5](docs/strategy_v5_sample_extension.md) |
+| V1 | Does a regime-based dynamic hedge have timing alpha? | PASS over the full period, **FAIL in validation**. Of the 0.109 BTC net gain, funding contributed 0.125 — timing P&L did not cover fees | [strategy_spec](docs/strategy_spec.md) §5 |
+| V2 | Dynamic regimes with a funding guard | Worse than a static hedge on every axis → **rejected** | [strategy_v2](docs/strategy_v2.md) |
+| V3 | Exhaustive search over static ratios 0–85% | **No optimal ratio**. A linear frontier: each 1 pp of drawdown removed costs about 0.33% of BTC (180 days) — insurance, not alpha | [strategy_v3](docs/strategy_v3_static_ratio.md) |
+| V4 | Random and block-shuffle control arms, 15 tests with Šidák correction (α = 0.00341) | **Zero** effects survive the correction. The Wilson 95% interval of every reported win rate contains 0.5 | [strategy_v4](docs/strategy_v4_control_arms.md) |
+| V5 | Extend the crash sample with USDT-M data | All three pre-registered gates **FAIL** → stopped without running the main analysis. The sample limit remains | [strategy_v5](docs/strategy_v5_sample_extension.md) |
 
-* **정정(2026-09-11)**: V3 의 "강건성 검사를 모두 통과하는 구간 10~20%" 논거는 PASS 조건이 2022년 폭락 한 건의 함수였음이 드러나 **철회**했다. 20% 는 유지하되 근거를 14개 시작일 창 전체에서 결과 편차가 가장 작다는 기준으로 바꿨다 — V3 §10.
-* **방법론**: 일봉 2,214개·펀딩 정산 6,640건(2020-08 → 2026-09, 페이지별 SHA-256 manifest). 마감된 봉으로 판단하고 **다음 봉 시가**에 슬리피지·Taker 수수료를 붙여 체결(같은 봉 체결 금지를 테스트로 고정). 60/20/20 분리, 워크포워드 7폴드, 시작일 14개 창 — [docs/backtest_methodology.md](docs/backtest_methodology.md).
+* **Correction (2026-09-11)**: V3's argument that "10–20% is the band that passes every robustness check" was **withdrawn** once it turned out that the PASS condition was a function of the single 2022 crash. 20% stays, but its rationale became the smallest outcome dispersion across all 14 start-date windows — V3 §10.
+* **Methodology**: 2,214 daily candles and 6,640 funding settlements (2020-08 → 2026-09, per-page SHA-256 manifest). Decisions use closed candles and fill at the **next candle's open** with slippage and taker fees (same-candle fills are forbidden by a test). 60/20/20 split, 7-fold walk-forward, 14 start-date windows — [docs/backtest_methodology.md](docs/backtest_methodology.md).
 
-## 3. 운영 결과 (페이퍼 트레이딩, 2026-11-12 기준)
+## 3. Live results (paper trading, as of 2026-11-12)
 
-Shadow 에이전트: 실시세·실펀딩 위의 가상 계좌 1 BTC, 20% 고정 헤지(154계약 숏). 실주문은 나가지 않는다.
+Shadow agent: a 1 BTC paper account on live prices and live funding, fixed 20% hedge (154 contracts short). No real orders are sent.
 
-| 구간 | BTC 가격 | 포트폴리오 USD | BTC 보유량 | HODL 대비(누적) |
+| Period | BTC price | Portfolio USD | BTC holdings | vs HODL (cumulative) |
 |---|---|---|---|---|
-| 09-11 → 10-18 (상승) | +5.26% | +4.31% | −0.90% | −$735 |
-| 10-18 → 11-12 (하락) | −9.06% | −7.21% | +2.04% | +$826 |
-| **09-11 → 11-12 (전체)** | **−4.28%** | **−3.21%** | **+1.12%** | **+$826** |
+| 09-11 → 10-18 (rising) | +5.26% | +4.31% | −0.90% | −$735 |
+| 10-18 → 11-12 (falling) | −9.06% | −7.21% | +2.04% | +$826 |
+| **09-11 → 11-12 (total)** | **−4.28%** | **−3.21%** | **+1.12%** | **+$826** |
 
-* 최대 낙폭(일별) −12.06% vs HODL −14.93%. 펀딩 수입 +0.00247 BTC(연환산 약 1.5%), 수수료 −0.0001 BTC.
-* 상승 구간에는 HODL 에 뒤처지고 하락 구간에는 앞선다 — 연구가 예측한 보험의 모양 그대로다. 61일은 엣지의 증거가 아니다.
-* Testnet(바이낸스 데모 계좌 0.01 BTC, 09-20 →): 같은 방향(포트폴리오 −6.9% vs HODL −8.0%). 실제 서명 API·유저 스트림·거래소 id 경로 검증용이다.
+* Maximum drawdown (daily) −12.06% vs HODL −14.93%. Funding income +0.00247 BTC (about 1.5% annualised), fees −0.0001 BTC.
+* Behind HODL in the rising stretch, ahead in the falling one — the insurance shape the research predicted. 61 days is not evidence of an edge.
+* Testnet (Binance demo account, 0.01 BTC, from 09-20): same direction (portfolio −6.9% vs HODL −8.0%). It exists to exercise the real signed API, user stream and exchange-id paths.
 
-## 4. 시스템 구조
+## 4. System architecture
 
 ```mermaid
 flowchart LR
-    MD["시세·펀딩<br/>REST + WebSocket"] --> ST["전략<br/>고정 20% 헤지"]
-    ST --> RK["리스크 가드 13종<br/>+ SAFE_HOLD 킬스위치"]
-    RK --> OM["주문 관리<br/>선기록·고유 ID·복구"]
-    OM --> AD["거래소 어댑터<br/>Paper / Demo / Live"]
-    AD --> LG["원장·대사<br/>매일 거래소와 일치 확인"]
-    LG --> AL["알림<br/>텔레그램"]
+    MD["Prices & funding<br/>REST + WebSocket"] --> ST["Strategy<br/>fixed 20% hedge"]
+    ST --> RK["13 risk guards<br/>+ SAFE_HOLD kill switch"]
+    RK --> OM["Order manager<br/>write-ahead · unique IDs · recovery"]
+    OM --> AD["Exchange adapter<br/>Paper / Demo / Live"]
+    AD --> LG["Ledger & reconciliation<br/>daily check against the exchange"]
+    LG --> AL["Alerts<br/>Telegram"]
 ```
 
-* **금액 계산**: 전 구간 `Decimal`. 원장이 진실의 원천이고(거래소 이벤트 1건 = 원장 1행, 거래소 id 로 중복 제거) 지갑 잔고는 그 캐시다. 매일 거래소와 대사한다.
-* **리스크 가드 13종**: 시세·캔들 신선도, 시계, 포지션 모드·일치, 헤지 한도, 증거금 여유, 미확인 주문, 주문 거부, 예상 밖 입출금, 계약 사양 변경, 스트림 무음, WebSocket 포지션 교차검증.
-* **SAFE_HOLD**: 몇 분 뒤 저절로 풀리는 조건(시계 오차, 끊긴 스트림, 거래소 일시 장애)은 그 사이클만 막고 10분 뒤 재시도하며, 3일 연속일 때만 정지를 래치한다. 해제는 사람만 할 수 있다.
-* **주문**: 보내기 전에 DB 에 먼저 기록하고 고유 client order id 로 중복을 막는다. 응답을 잃으면 그 id 로 거래소를 조회해 복구한다.
-* **실거래 게이트(전부 필요, 기본 비활성)**: `BIQ_ENABLE_LIVE_TRADING=true` · `live.live_trading_enabled: true` · `--confirm-live` · acknowledgement 3중 일치 · API 키/권한 · 시간 동기화 · 포지션 일치 · 미확인 주문 없음 · 헤지율 한도 · 시세 정상 · 계약사양 검증 · One-way 모드 · 소액 한도.
-* **품질**: 테스트 256개(unit · integration · simulation), mypy strict, ruff. 장애는 실패하는 재현 테스트를 먼저 만든 뒤 고쳤다.
+* **Money math**: `Decimal` throughout. The ledger is the source of truth (one exchange event = one ledger row, deduplicated by exchange id) and the wallet balance is its cache. Reconciled against the exchange every day.
+* **13 risk guards**: price and candle freshness, clock, position mode and position match, hedge cap, margin buffer, unknown orders, order rejects, unexpected transfers, contract-spec changes, stream silence, WebSocket position cross-check.
+* **SAFE_HOLD**: conditions that clear on their own within minutes (clock offset, a dropped stream, a transient exchange outage) block only that cycle and retry 10 minutes later; the halt latches only after 3 consecutive days. Only a human can release it.
+* **Orders**: written to the database before they are sent, with a unique client order id to prevent duplicates. If a response is lost, the order is recovered by querying the exchange with that id.
+* **Live-trading gate (all required, off by default)**: `BIQ_ENABLE_LIVE_TRADING=true` · `live.live_trading_enabled: true` · `--confirm-live` · acknowledgement matched three ways · API key/permissions · time sync · position match · no unknown orders · hedge-ratio cap · healthy prices · contract-spec check · one-way mode · small-size cap.
+* **Quality**: 256 tests (unit · integration · simulation), mypy strict, ruff. Every failure was fixed only after a regression test reproduced it.
 
 ```
 src/btc_inventory_quant/{config,domain,data,indicators,strategy,backtest,exchange,execution,risk,monitoring,storage,runtime,cli}
 ```
-자세한 설명: [docs/architecture.md](docs/architecture.md)
+Details: [docs/architecture.md](docs/architecture.md)
 
-## 5. 운영 기록 — 무인 운영에서 찾아 고친 것
+## 5. Operations log — what unattended running found and fixed
 
-| 날짜 | 증상 | 원인 → 수정 | 문서 |
+| Date | Symptom | Cause → fix | Doc |
 |---|---|---|---|
-| 09-05 | WebSocket 이 연결된 채 24.8시간 무음, 킬스위치 6일 래치 | 절전 후 죽은 소켓 → 무음 감지·강제 재연결, 회복 가능 조건은 래치하지 않음, 외부 알림. 프로세스 90초 정지 현장 시험에서 20초 안에 자가 복구 | [incident 09-05](docs/incident_2026-09-05_stream_silence.md) |
-| 09-14 | 복구 경로 버그 2건, 잠든 사이 그날 판단 유실 | 백오프 중 재시작이 스레드를 죽임·기상 직후 감시자 경합 → 진행 여부로 판단, 판단 재시도 추가 | 같은 문서 §7–9 |
-| 09-16 | 펀딩 3건 원장 누락 → 대사 불일치로 4일 정지 | 가상 거래소 id 가 재시작마다 1부터 → 정산 시각 기반 id, 원장 복구 | [incident 09-16](docs/incident_2026-09-16_paper_income_ids.md) |
-| 09-27 | 데모 계좌 펀딩이 0건으로 보임 | 데모 income API 는 타입 없는 조회에 빈 배열(문서와 다름) → 타입별 조회 | [API 검증](docs/exchange_api_verification.md) §18 |
-| 09-30 | 기상 직후 1.3초 시계 오차로 즉시 정지 · 만료된 listenKey 를 이틀간 붙듦 | 2단 시계 가드·재시도 · 연결마다 키 요청, 거부되면 새 키 | [incident 09-30](docs/incident_2026-09-30_testnet_clock_listenkey.md) |
-| 10-10 | 원장과 지갑 0.00000033 BTC 불일치(대사 허용오차 아래) | 조기 반환 경로에서 저장 누락 → income 반영 직후 저장, 원장 먼저 쓰기, 시작 시 원장 기준 재구성 + 알림 | 같은 문서 §7 |
-| 10-14 | 00:05 판단에서 +2초 시계 오차(17일 중 4일) | 데모 서버를 기준 시계로 쓰던 것 → 프로덕션 시간 기준으로. 10-16 동시 측정으로 원인은 맥 시계로 확정 | 같은 문서 §8 |
+| 09-05 | WebSocket silent for 24.8 hours while still "connected"; kill switch latched for 6 days | Dead socket after laptop sleep → silence detection and forced reconnect, no latching on recoverable conditions, external alerts. In a field test with the process frozen for 90 seconds it recovered on its own within 20 seconds | [incident 09-05](docs/incident_2026-09-05_stream_silence.md) |
+| 09-14 | Two bugs in the recovery path; the day's decision lost while asleep | A restart during backoff killed the thread; the supervisor raced the wake → judge streams by progress, add decision retry | Same doc §7–9 |
+| 09-16 | 3 funding payments missing from the ledger → reconciliation mismatch, 4-day halt | Paper-exchange ids restarted from 1 on every restart → ids based on settlement time, ledger repaired | [incident 09-16](docs/incident_2026-09-16_paper_income_ids.md) |
+| 09-27 | Demo account appeared to receive no funding | The demo income API returns an empty array to untyped queries (differs from the docs) → query per type | [API verification](docs/exchange_api_verification.md) §18 |
+| 09-30 | A 1.3 s clock offset right after a wake halted trading at once · an expired listenKey held for two days | Two-tier clock guard with retry · request the key on every connect, fetch a new one if refused | [incident 09-30](docs/incident_2026-09-30_testnet_clock_listenkey.md) |
+| 10-10 | Ledger and wallet 0.00000033 BTC apart (below the reconciliation tolerance) | Save missed on an early-return path → save right after income sync, write the ledger first, rebuild from the ledger at startup + alert | Same doc §7 |
+| 10-14 | +2 s clock offset at the 00:05 decision (4 of 17 days) | The demo server had been the reference clock → judge against production time. A simultaneous measurement on 10-16 traced it to the Mac's clock | Same doc §8 |
 
-## 6. 설치
+## 6. Installation
 
-**macOS (Apple Silicon / Intel)** — 한 줄 부트스트랩(Python 3.12 확인·설치, venv, 의존성, 데이터 검증, 테스트):
+**macOS (Apple Silicon / Intel)** — one-line bootstrap (checks/installs Python 3.12, venv, dependencies, data check, tests):
 ```bash
 cd btc-inventory-hedge-quant
 bash scripts/setup_macos.sh
 source .venv/bin/activate
 ```
-수동 설치:
+Manual install:
 ```bash
-brew install python@3.12                                        # 없을 때만
+brew install python@3.12                                        # only if missing
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env                                            # 키는 .env 에만 (커밋 금지)
+cp .env.example .env                                            # keys live only in .env (never commit it)
 python -m pytest -q                                             # 256 tests (unit / integration / simulation)
 ```
-상시 실행(macOS): `bash scripts/install_agent.sh shadow` / `bash scripts/install_agent.sh testnet` — 설정 사전 점검 후 모드별 launchd 에이전트를 설치하고 `caffeinate -s` 로 감싸 절전을 막습니다(`install_shadow_agent.sh` 는 shadow 의 별칭). 텔레그램 알림은 `bash scripts/setup_telegram.sh`.
+Always-on (macOS): `bash scripts/install_agent.sh shadow` / `bash scripts/install_agent.sh testnet` — checks the configuration, installs one launchd agent per mode and wraps it in `caffeinate -s` to keep the machine awake (`install_shadow_agent.sh` is an alias for shadow). Telegram alerts: `bash scripts/setup_telegram.sh`.
 
 **Windows (PowerShell)**:
 ```powershell
@@ -129,78 +127,78 @@ copy .env.example .env
 python -m pytest -q
 ```
 
-**Linux / Docker**: `python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"` 또는 `docker compose run --rm backtest` / `docker compose up -d shadow`.
+**Linux / Docker**: `python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"` or `docker compose run --rm backtest` / `docker compose up -d shadow`.
 
-## 7. 백테스트 실행
+## 7. Running a backtest
 
 ```bash
-python -m btc_inventory_quant data --raw-dir data/raw download  # 원본 데이터 받기 (공개 저장소에는 없음 — 아래 '데이터')
-python -m btc_inventory_quant data verify                       # 받은 페이지가 manifest 의 SHA-256 과 일치하는지
+python -m btc_inventory_quant data --raw-dir data/raw download  # download the raw data (not in the public repository — see 'Data')
+python -m btc_inventory_quant data verify                       # check the downloaded pages against the manifest's SHA-256
 python -m btc_inventory_quant backtest --config configs/backtest.yaml
 ```
 
-**데이터** — 연구에 쓴 원본 시장 데이터(`data/raw*/` 의 바이낸스 공개 API 응답: 일봉·마크/인덱스 가격·펀딩 이력)와 그 시계열을 그대로 담은 일부 보고서 CSV 는 비공개 작업 저장소에만 두고 **공개 저장소에는 넣지 않았습니다.** 바이낸스는 자사 과거 데이터셋을 비상업·출처 표시 조건으로 배포하고 있고, 공개 API 응답의 재배포를 명시적으로 허용하는 문구는 찾지 못했기 때문입니다. 대신 `data/raw*/manifest.json` — 연구 당시 스냅샷의 구간·행 수·페이지별 SHA-256 — 을 남겼습니다. `download` 는 받은 시점까지의 데이터로 manifest 를 다시 쓰므로 `git diff` 로 연구 스냅샷과 비교할 수 있습니다. 계약 사양 `data/raw/exchange_info.json` 은 실행에 필요해서 포함합니다.
+**Data** — The raw market data used in the research (Binance public API responses in `data/raw*/`: daily candles, mark/index prices, funding history) and the report CSVs that repeat those series are kept only in the private working repository and **are not included in the public repository.** Binance distributes its historical datasets under non-commercial and attribution terms, and no wording was found that explicitly permits redistributing public API responses. Instead, `data/raw*/manifest.json` — the window, row counts and per-page SHA-256 of the research snapshot — is kept. `download` rewrites the manifest with data up to the time of download, so `git diff` compares it with the research snapshot. The contract specification `data/raw/exchange_info.json` is included because the runtime needs it.
 
-`reports/<run_id>/` 에 `summary.json`, `backtest_report.md`, `trades.csv`, `daily_equity.csv`, `monthly_returns.csv`, `yearly_returns.csv`, `funding_history.csv`, `fee_history.csv`, `hedge_ratio_history.csv`, `benchmark_comparison.csv`, `drawdown.csv`, `sensitivity.csv`, `charts/*.png` 이 생성됩니다.
+`reports/<run_id>/` receives `summary.json`, `backtest_report.md`, `trades.csv`, `daily_equity.csv`, `monthly_returns.csv`, `yearly_returns.csv`, `funding_history.csv`, `fee_history.csv`, `hedge_ratio_history.csv`, `benchmark_comparison.csv`, `drawdown.csv`, `sensitivity.csv` and `charts/*.png`.
 
-과최적화 검증(60/20/20 분리, 제한 그리드, Nested walk-forward, 시작일 의존성):
+Overfitting checks (60/20/20 split, restricted grid, nested walk-forward, start-date dependence):
 ```bash
 python -m btc_inventory_quant research --config configs/backtest.yaml walk-forward
 ```
 
-옵션은 하위 명령 앞/뒤 어느 쪽에 써도 됩니다(`data --raw-dir X verify` = `data verify --raw-dir X`). 전략 파라미터·리스크 한도·비용은 **설정 파일만** 바꾸면 됩니다(`configs/backtest.yaml`).
+Options can go before or after the subcommand (`data --raw-dir X verify` = `data verify --raw-dir X`). Strategy parameters, risk limits and costs are changed **in the config file only** (`configs/backtest.yaml`).
 
-## 8. 운영 모드
+## 8. Operating modes
 
-| 모드 | 명령 | 데이터 | 주문 |
+| Mode | Command | Data | Orders |
 |---|---|---|---|
-| backtest | `backtest --config configs/backtest.yaml` | 과거 파일 | 시뮬레이션 |
-| shadow | `shadow --config configs/shadow.yaml` | 실시간 공개 REST | 페이퍼 계좌(실주문 불가) |
-| testnet | `testnet --config configs/testnet.yaml` | 데모 거래소 | 데모 주문 |
-| live | `live --config configs/live.yaml --confirm-live` | 실거래소 | **게이트 통과 시에만** |
+| backtest | `backtest --config configs/backtest.yaml` | Historical files | Simulated |
+| shadow | `shadow --config configs/shadow.yaml` | Live public REST | Paper account (no real orders) |
+| testnet | `testnet --config configs/testnet.yaml` | Demo exchange | Demo orders |
+| live | `live --config configs/live.yaml --confirm-live` | Live exchange | **Only when the gate passes** |
 
-운영 명령: `status`, `reconcile`, `verify-funding`, `safe-hold [--release --ack I_ACCEPT_COIN_M_TRADING_RISK]`.
+Operational commands: `status`, `reconcile`, `verify-funding`, `safe-hold [--release --ack I_ACCEPT_COIN_M_TRADING_RISK]`.
 
-## 9. 문서
+## 9. Documentation
 
-| 문서 | 내용 |
+| Document | Contents |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | 계층·데이터 흐름·모드 |
-| [docs/inverse_math.md](docs/inverse_math.md) | Inverse 계약 수학(손익·평균가·수수료·펀딩·청산) |
-| [docs/backtest_methodology.md](docs/backtest_methodology.md) | 데이터·체결 타임라인·비용·지표·과최적화 방지 |
-| [docs/strategy_spec.md](docs/strategy_spec.md) | V1 규칙·파라미터·검증 결과·정직한 결론 |
-| [docs/strategy_v2.md](docs/strategy_v2.md) | V2 펀딩 가드 연구 — 2×2 실험, 손익 귀속 분해, **동적 레짐 기각** 판정 |
-| [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 정적 비율 프론티어 — **최적 비율 부재** 판정, 보험 구조 해부. §10: 단일 사건 오염 정정과 **시작일 분산 기준**으로의 교체 |
-| [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md) | V4 대조군 검정 — **무작위 대비 유의성 0건**, 승률 주장 철회, 거래비용 아티팩트 해부 |
-| [docs/strategy_v5_sample_extension.md](docs/strategy_v5_sample_extension.md) | V5 표본 확장 — 사전 등록 관문(G1~G3) **전부 FAIL**, USDT-M 은 COIN-M 펀딩의 대체물이 아님 |
-| [docs/risk_management.md](docs/risk_management.md) | 한도·가드·Fail-safe·Live 게이트 |
-| [docs/exchange_api_verification.md](docs/exchange_api_verification.md) | Binance COIN-M 공식 문서 검증(VERIFIED/PARTIAL/UNVERIFIED) |
-| [docs/demo_verification_runbook.md](docs/demo_verification_runbook.md) | **Demo 접속 절차 + 펀딩 공식 검증** — 미검증 4건 해소 |
-| [docs/operations_runbook.md](docs/operations_runbook.md) | 설치·백테스트·Shadow·Testnet·Live·점검 |
-| [docs/incident_response.md](docs/incident_response.md) | SAFE_HOLD 트리거·대응·재시작 복구 |
-| [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md) | 인시던트 — 죽은 소켓이 6일간 SAFE_HOLD 를 래치한 경위, 원인 3건, 수정, 현장 검증 |
-| [docs/incident_2026-09-16_paper_income_ids.md](docs/incident_2026-09-16_paper_income_ids.md) | 인시던트 — 가상 거래소 id 충돌로 빠진 펀딩, 원장 복구 |
-| [docs/incident_2026-09-30_testnet_clock_listenkey.md](docs/incident_2026-09-30_testnet_clock_listenkey.md) | 인시던트 — 시계 가드 래치, 만료된 listenKey, 원장/지갑 분리, 00:05 시계 오차 판정 |
-| [docs/requirements_audit.md](docs/requirements_audit.md) | 요구사항 21개 절 → 구현·테스트 추적 매트릭스, 감사 후 보강 내역 |
+| [docs/architecture.md](docs/architecture.md) | Layers, data flow, modes |
+| [docs/inverse_math.md](docs/inverse_math.md) | Inverse contract math (P&L, average price, fees, funding, liquidation) |
+| [docs/backtest_methodology.md](docs/backtest_methodology.md) | Data, fill timeline, costs, metrics, overfitting safeguards |
+| [docs/strategy_spec.md](docs/strategy_spec.md) | V1 rules, parameters, validation results, honest conclusion |
+| [docs/strategy_v2.md](docs/strategy_v2.md) | V2 funding-guard study — 2×2 experiment, P&L attribution, **dynamic regimes rejected** |
+| [docs/strategy_v3_static_ratio.md](docs/strategy_v3_static_ratio.md) | V3 static-ratio frontier — **no optimal ratio** verdict, anatomy of the insurance structure. §10: correction of single-event contamination and the switch to a **start-date dispersion criterion** |
+| [docs/strategy_v4_control_arms.md](docs/strategy_v4_control_arms.md) | V4 control-arm tests — **zero effects significant against random**, win-rate claims withdrawn, transaction-cost artefact dissected |
+| [docs/strategy_v5_sample_extension.md](docs/strategy_v5_sample_extension.md) | V5 sample extension — pre-registered gates (G1–G3) **all FAIL**; USDT-M is not a substitute for COIN-M funding |
+| [docs/risk_management.md](docs/risk_management.md) | Limits, guards, fail-safes, live gate |
+| [docs/exchange_api_verification.md](docs/exchange_api_verification.md) | Verification against the official Binance COIN-M docs (VERIFIED/PARTIAL/UNVERIFIED) |
+| [docs/demo_verification_runbook.md](docs/demo_verification_runbook.md) | **Demo access procedure + funding-formula verification** — 4 unverified items resolved |
+| [docs/operations_runbook.md](docs/operations_runbook.md) | Install, backtest, Shadow, Testnet, Live, routine checks |
+| [docs/incident_response.md](docs/incident_response.md) | SAFE_HOLD triggers, response, restart recovery |
+| [docs/incident_2026-09-05_stream_silence.md](docs/incident_2026-09-05_stream_silence.md) | Incident — how a dead socket latched SAFE_HOLD for 6 days, 3 causes, fixes, field verification |
+| [docs/incident_2026-09-16_paper_income_ids.md](docs/incident_2026-09-16_paper_income_ids.md) | Incident — funding lost to paper-exchange id collisions, ledger repair |
+| [docs/incident_2026-09-30_testnet_clock_listenkey.md](docs/incident_2026-09-30_testnet_clock_listenkey.md) | Incident — clock-guard latch, expired listenKey, ledger/wallet split, verdict on the 00:05 clock offset |
+| [docs/requirements_audit.md](docs/requirements_audit.md) | 21 requirement sections → implementation/test traceability matrix, post-audit additions |
 
-## 10. 알려진 한계 · 미검증 항목
+## 10. Known limits and unverified items
 
-* **폭락 표본은 1~2건이며 늘릴 수 없다.** COIN-M 계약이 2020-08 상장이라 그 이전 실제 펀딩이 존재하지 않고, USDT-M 프록시는 V5 관문에서 기각됐다. 보험형 전략의 기대가치는 이 데이터로 검증 불가.
-* **실계좌 미검증**: 운영 결과는 페이퍼(Shadow)·데모(Testnet) 기준이다. 프로덕션 수수료 등급·유동성·실제 체결은 확인하지 않았다.
-* **데모 환경은 `fundingRate` 이력을 제공하지 않고, 데모/프로덕션 요율이 다르다**(2.9배 관측). 공식 문서 미명시(UNVERIFIED). 펀딩 검증은 `--snapshot-rate` 로 동일 환경 요율을 미리 잡아야 한다.
-* 펀딩 금액 공식(÷ Mark Price)의 COIN-M 원문은 미발견이나, **2026-09-04 실제 정산과 대조하여 VERIFIED(±8.12% 정밀도)** — [docs/inverse_math.md](docs/inverse_math.md) §6. 거래소가 정산액을 8자리 절삭 보고하므로 소액 포지션에서는 이보다 정밀한 검증이 불가하다.
-* 데모 호스트의 `GET /dapi/v1/income` 은 `incomeType` 없이 호출하면 빈 배열을 돌려준다(문서와 다름). 프로덕션 동작은 UNVERIFIED — [docs/exchange_api_verification.md](docs/exchange_api_verification.md) §18.
-* 현재 VIP0 수수료율·COIN-M BNB 할인 여부 미확인 → 런타임 `commissionRate` 조회, 백테스트는 보수적 0.05%/0.02%.
-* 계약 사양 변경 이력 미반영(현재 사양 고정), 일봉 해상도 근사(펀딩 시각 마크가격), 슬리피지·부분체결은 모델값.
-* Docker 이미지 빌드 미검증. `.dockerignore` 로 빌드 컨텍스트에서 `.env`·`.venv`·`state/` 는 제외됨.
-* 머신러닝 없음(V1 범위 제외).
+* **The crash sample is 1–2 events and cannot be enlarged.** The COIN-M contract listed in 2020-08, so no real funding exists before that, and the USDT-M proxy was rejected at the V5 gates. The expected value of an insurance-type strategy cannot be tested with this data.
+* **Live account unverified**: operating results are paper (Shadow) and demo (Testnet). Production fee tier, liquidity and real fills have not been checked.
+* **The demo environment provides no `fundingRate` history, and demo and production rates differ** (2.9× observed). Not stated in the official docs (UNVERIFIED). Funding verification must capture the same-environment rate in advance with `--snapshot-rate`.
+* The COIN-M source text for the funding amount formula (÷ mark price) has not been found, but the formula was **VERIFIED against a real settlement on 2026-09-04 (±8.12% precision)** — [docs/inverse_math.md](docs/inverse_math.md) §6. The exchange reports settlement amounts truncated to 8 decimals, so small positions cannot be verified more precisely.
+* The demo host's `GET /dapi/v1/income` returns an empty array when called without `incomeType` (differs from the docs). Production behaviour UNVERIFIED — [docs/exchange_api_verification.md](docs/exchange_api_verification.md) §18.
+* Current VIP0 fee rates and the COIN-M BNB discount are unconfirmed → `commissionRate` is queried at runtime; backtests use a conservative 0.05%/0.02%.
+* Contract-spec change history is not modelled (current spec fixed), daily-resolution approximation (mark price at funding times), slippage and partial fills are modelled values.
+* Docker image build not verified. `.dockerignore` keeps `.env`, `.venv` and `state/` out of the build context.
+* No machine learning (out of V1 scope).
 
-## 11. 보안
+## 11. Security
 
-API 키·시크릿은 `.env` 에만 두고 커밋하지 않습니다(`.env.example` 만 제공). 로그는 API Key·Secret·Signature·인증 헤더·listenKey 를 자동 마스킹합니다. 출금 권한 없는 키와 IP 화이트리스트, 전용 서브계정을 권장합니다.
+API keys and secrets live only in `.env` and are never committed (only `.env.example` is provided). Logs automatically mask API keys, secrets, signatures, auth headers and listenKeys. A key without withdrawal permission, an IP whitelist and a dedicated sub-account are recommended.
 
-## 12. 개발 방식 · 라이선스 · 면책
+## 12. Development, license, disclaimer
 
-* 설계·구현은 AI 코딩 어시스턴트(Claude)와 함께 진행했고, 커밋 기록에 공동 작성자로 남아 있습니다.
-* 코드는 MIT — [LICENSE](LICENSE). 시장 데이터는 이 라이선스의 대상이 아니며 바이낸스 약관을 따릅니다.
-* 이 소프트웨어는 연구·교육 목적이며 수익을 보장하지 않습니다. 백테스트 결과는 과거 데이터에 기반하며 미래 성과를 담보하지 않습니다. 실거래의 모든 책임은 사용자에게 있습니다.
+* Designed and built together with an AI coding assistant (Claude); it appears as a co-author in the commit history.
+* Code is MIT — [LICENSE](LICENSE). Market data is not covered by this license and is subject to Binance's terms.
+* This software is for research and education and guarantees no profit. Backtest results are based on historical data and do not guarantee future performance. All responsibility for live trading lies with the user.

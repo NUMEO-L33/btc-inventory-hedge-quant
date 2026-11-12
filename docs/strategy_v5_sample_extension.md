@@ -1,148 +1,148 @@
-# 전략 V5 연구 — 표본 확장 (사전 등록)
+# Strategy V5 study — sample extension (pre-registered)
 
-**작성 시각: 2026-09-11, 확장 데이터를 한 줄도 보기 전.**
-이 문서는 결과를 본 뒤 기준을 바꾸지 못하게 하려고 먼저 쓴다. V3 §3 에서 목적함수를
-사전 등록해놓고 그 부정합을 뒤늦게 발견한 일이 있었으므로, 이번에는 **합격 기준과 실패
-보고 방식까지** 미리 못박는다.
+**Written: 2026-09-11, before looking at a single line of the extended data.**
+This document is written first so that the criteria cannot be changed after the results are seen. Since in V3 §3 the
+objective function was pre-registered and its inconsistency was only discovered afterwards, this time **even the pass criteria
+and the way a failure will be reported** are nailed down in advance.
 
 ---
 
-## 1. 왜 하는가
+## 1. Why do this
 
-V3 §10 이 드러낸 문제: **편익(폭락 시 지급) 쪽 표본이 사실상 1~2개**다. 비용과 시작일
-의존도는 14개 창으로 측정했지만, 지급 사건은 2022년 낙폭과 2024~2025 낙폭뿐이다.
-보험의 기대가치는 청구 1~2건으로 검증할 수 없다.
+The problem V3 §10 exposed: **on the benefit side (payout in a crash) there are effectively only 1–2 samples**. Cost and
+start-date dependence were measured over 14 windows, but the only payout events are the 2022 drawdown and the 2024–2025 drawdown.
+The expected value of insurance cannot be verified from 1–2 claims.
 
-COIN-M `BTCUSD_PERP` 는 2020-08-11 상장이라 그 이전 **실제 펀딩 데이터가 없다.**
-표본을 늘리려면 다른 출처가 필요한데, 출처를 바꾸는 순간 "그 출처가 우리 계약을 대신할
-수 있는가" 라는 새 질문이 생긴다. **그 질문을 먼저 통과하지 않으면 확장 결과는 무의미하다.**
+COIN-M `BTCUSD_PERP` was listed on 2020-08-11 and so **has no real funding data before that.**
+Extending the sample requires another source, and the moment the source changes, a new question arises: "can that source
+stand in for our contract?" **Unless that question is cleared first, the extension results are meaningless.**
 
-## 2. 확장 대상과 그 한계
+## 2. The extension source and its limits
 
-| | 선택 | 이유 |
+| | Choice | Reason |
 |---|---|---|
-| 채택 | **Binance USDT-M `BTCUSDT` 선물** (2019-09-08~) | 같은 거래소, **실제 펀딩 요율**, 폭락 1건(2020-03, −50%) 추가 |
-| 기각 | 현물 + 가정 펀딩 (2013~) | 폭락 3건을 얻지만 **V4 에서 유일하게 살아남은 효과인 펀딩이 가정이 된다.** 답할 수 있는 질문 자체가 바뀐다 |
-| 기각 | BitMEX XBTUSD (2016~) | inverse 라는 점은 더 가깝지만 **다른 거래소**이고, 우리 운영 계좌와 무관한 요율이다 |
+| Adopted | **Binance USDT-M `BTCUSDT` futures** (2019-09-08 onward) | Same exchange, **real funding rates**, adds 1 crash (2020-03, −50%) |
+| Rejected | Spot + assumed funding (2013 onward) | Gains 3 crashes, but **funding — the only effect that survived V4 — becomes an assumption.** The very question that can be answered changes |
+| Rejected | BitMEX XBTUSD (2016 onward) | Closer in being inverse, but it is a **different exchange**, with rates unrelated to our operating account |
 
-**USDT-M 은 linear(USDT 증거금), 우리 계약은 inverse(BTC 증거금)다.** 손익 수식이 다르다.
-따라서 USDT-M 에서 가져오는 것은 **가격 시계열과 펀딩 요율 시계열뿐**이고, inverse 계약
-수식은 기존 그대로 적용한다. 이 대입이 정당한지가 §3 의 관문이다.
+**USDT-M is linear (USDT-margined); our contract is inverse (BTC-margined).** The PnL formulas differ.
+So all we take from USDT-M is **the price series and the funding-rate series**, and the inverse-contract
+formulas are applied unchanged. Whether this substitution is legitimate is the §3 gate.
 
-## 3. 관문 — 프록시 검증 (이걸 통과해야 §4 로 간다)
+## 3. Gate — proxy validation (this must pass before going on to §4)
 
-**겹치는 구간 2020-08-11 ~ 2026-09-01 에서 두 펀딩 요율 시계열을 직접 대조한다.**
-두 심볼 모두 실제 데이터가 있는 구간이므로 가정 없이 측정 가능하다.
+**Over the overlap period 2020-08-11 to 2026-09-01 the two funding-rate series are compared directly.**
+Both symbols have real data in this period, so it can be measured without assumptions.
 
-**사전 등록한 합격 기준 (셋 다 충족해야 PASS):**
+**Pre-registered pass criteria (all three must be met for PASS):**
 
-| # | 기준 | 임계값 |
+| # | Criterion | Threshold |
 |---|---|---|
-| G1 | 8시간 정산별 요율 차이의 **중앙 절대편차** | ≤ **0.002%** (0.2bp) per 8h |
-| G2 | **누적 펀딩 수취액**(20% 헤지 기준, 전체 겹침 구간) 상대오차 | ≤ **15%** |
-| G3 | 부호 일치율 (양/음 방향이 같은 정산의 비율) | ≥ **95%** |
+| G1 | **Median absolute deviation** of the rate difference per 8-hour settlement | ≤ **0.002%** (0.2bp) per 8h |
+| G2 | Relative error of **cumulative funding received** (at a 20% hedge, over the whole overlap period) | ≤ **15%** |
+| G3 | Sign agreement rate (share of settlements with the same positive/negative direction) | ≥ **95%** |
 
-임계값 근거 — 결과를 보기 전에 고정한다:
-* **G1 의 0.2bp**: V3 §6.1 의 역펀딩 스트레스가 −1bp/8h 에서 판정을 뒤집었다. 프록시
-  오차가 그 스트레스의 1/5 을 넘으면, 확장 구간의 결론이 프록시 오차와 구분되지 않는다.
-* **G2 의 15%**: 실측 펀딩 검증(`docs/inverse_math.md` §6)이 ±8.12% 로 VERIFIED 됐다.
-  프록시 오차가 우리가 이미 안고 있는 측정 오차의 2배를 넘으면 쓸 수 없다.
-* **G3 의 95%**: 방향이 다르면 헤지가 비용인지 수익인지가 뒤집힌다. 이건 크기 문제가 아니다.
+Rationale for the thresholds — fixed before seeing the results:
+* **G1's 0.2bp**: the adverse-funding stress in V3 §6.1 flipped the verdict at −1bp/8h. If the proxy
+  error exceeds 1/5 of that stress, conclusions on the extended period cannot be told apart from proxy error.
+* **G2's 15%**: the funding verification measured live (`docs/inverse_math.md` §6) came out VERIFIED at ±8.12%.
+  If the proxy error is more than 2× the measurement error we already carry, it cannot be used.
+* **G3's 95%**: if the direction differs, whether the hedge is a cost or an income flips. This is not a question of magnitude.
 
-**FAIL 시 처리**: §4 를 **실행하지 않는다.** "USDT-M 은 COIN-M 펀딩의 대체물이 아니다"
-를 결과로 보고하고, 표본 확장은 이 경로로 불가능하다고 기록한다. 임계값을 완화하거나
-다른 기준을 찾지 않는다. 그것이 V3 §3 에서 저질렀던 종류의 오류다.
+**On FAIL**: §4 is **not run.** We report "USDT-M is not a substitute for COIN-M funding"
+as the result and record that the sample cannot be extended by this route. We do not relax the thresholds or
+look for other criteria. That is the kind of error V3 §3 made.
 
-## 4. 확장 분석 (관문 통과 시에만)
+## 4. Extension analysis (only if the gate is passed)
 
-1. 확장 구간 **2019-09-08 ~ 2026-09-01** 로 `static_ratio_frontier.py` 의 시작일 의존성
-   분석을 재실행한다(2년 창, 91일 간격). 창 수는 14 → 약 20 개가 된다.
-2. `window_dispersion.py` 로 **최고/최악 비**를 비율별로 다시 계산한다.
+1. Re-run the start-date-dependence analysis of `static_ratio_frontier.py` on the extended period
+   **2019-09-08 to 2026-09-01** (2-year windows, 91 days apart). The window count goes from 14 to about 20 in all.
+2. Recompute the **best/worst ratio** for each hedge ratio with `window_dispersion.py`.
 
-**사전 등록한 판정 질문 — 딱 하나:**
+**Pre-registered verdict question — exactly one:**
 
-> 2020-03 폭락을 포함한 창이 들어왔을 때, **비율별 최고/최악 비의 순서(단조 증가)가
-> 유지되는가?**
+> When windows containing the 2020-03 crash are added, **is the ordering of the best/worst ratio across hedge ratios
+> (monotonically increasing) preserved?**
 
-* **유지 → V3 §10.4 의 결론(낮은 비율일수록 시작 시점 의존도가 낮다)이 두 번째 사건에서도
-  재현됐다.** 20% 유지의 근거가 강해진다.
-* **뒤집힘 → §10.4 를 철회한다.** 그 경우 20% 를 지지하는 논거가 남지 않으므로, 비율
-  결정을 근거 없음으로 되돌리고 그대로 보고한다.
+* **Preserved → the conclusion of V3 §10.4 (the lower the ratio, the lower the dependence on the starting point) has been
+  reproduced on a second event as well.** The case for keeping 20% gets stronger.
+* **Reversed → §10.4 is withdrawn.** In that case no argument supporting 20% remains, so the ratio
+  decision is reverted to "unsupported" and reported as such.
 
-**이 연구는 "최적 비율"을 찾지 않는다.** V3 가 없다고 결론지었고, 창 6개 추가로 그 결론이
-바뀌지 않는다. 묻는 것은 **기존 결론이 새 사건에서도 버티는가** 하나뿐이다.
+**This study does not look for an "optimal ratio".** V3 concluded there is none, and adding 6 windows does not
+change that conclusion. The only thing asked is **whether the existing conclusion holds up on a new event**.
 
-## 5. 미리 밝히는 한계
+## 5. Limitations disclosed in advance
 
-* 창 6개가 늘어도 **독립 표본 수는 여전히 한 자릿수**다. 7년 ÷ 2년 창 ≈ 3.5.
-* 2020-03 폭락은 이틀 만에 −50% 로 **2022(1년에 걸친 −77%)와 성격이 다르다.** 같은
-  "폭락"으로 묶는 것 자체가 거친 단순화다. 결과 해석 시 이 차이를 명시할 것.
-* 2019-09~2020-08 구간에는 **COIN-M 계약이 존재하지 않았다.** 그 구간의 결과는 "만약
-  그때 이 계약이 있었다면" 이라는 반사실이며, 실제로 체결 가능했다는 뜻이 아니다.
-* 프록시가 G1~G3 을 통과해도 그것은 **겹치는 구간에서의 일치**다. 2019~2020 구간에서도
-  같으리라는 보장은 없고, 이는 검증 불가능하다.
+* Even with 6 more windows, **the number of independent samples is still in single digits**. 7 years ÷ 2-year windows ≈ 3.5.
+* The 2020-03 crash was −50% within two days, **different in character from 2022 (−77% over 1 year).** Lumping them together as
+  the same "crash" is itself a crude simplification. State this difference explicitly when interpreting the results.
+* In the 2019-09 to 2020-08 period **the COIN-M contract did not exist.** Results for that period are the counterfactual "if
+  this contract had existed back then", and do not mean that trades could actually have been executed.
+* Even if G1–G3 are passed by the proxy, that is **agreement over the overlap period**. There is no guarantee it would be
+  the same in the 2019–2020 period, and this cannot be verified.
 
-## 6. 결과 기록
+## 6. Recording the results
 
-`reports/v5_sample_extension/` 과 이 문서의 §7 에 기록한다. **관문에서 멈추더라도 §7 을
-쓴다.** 실행하지 않은 연구도 결과다.
+Recorded in `reports/v5_sample_extension/` and in §7 of this document. **Even if the study stops at the gate, §7 is still
+written.** A study that was not run is also a result.
 
-## 7. 결과 — 관문 FAIL, §4 를 실행하지 않았다 (2026-09-11)
+## 7. Results — gate FAIL, §4 was not run (2026-09-11)
 
-재현: `python scripts/v5_proxy_gate.py` · 기록: `reports/v5_sample_extension/proxy_gate.json`
+Reproduce: `python scripts/v5_proxy_gate.py` · Record: `reports/v5_sample_extension/proxy_gate.json`
 
-데이터: USDT-M `BTCUSDT` 펀딩 7,674건(2019-09-10~2026-09-11), COIN-M `BTCUSD_PERP` 6,641건.
-겹치는 정산 **6,641건** (2020-08-10 16:00 ~ 2026-09-02 08:00 UTC).
+Data: USDT-M `BTCUSDT` funding, 7,674 records (2019-09-10 to 2026-09-11); COIN-M `BTCUSD_PERP`, 6,641 records.
+Overlapping settlements: **6,641** (2020-08-10 16:00 to 2026-09-02 08:00 UTC).
 
-| 기준 | 임계값 | 실측 | 판정 |
+| Criterion | Threshold | Measured | Verdict |
 |---|---|---|---|
-| G1 요율차 중앙절대편차 | ≤ 0.00002 | **0.00003310** (1.66배 초과) | **FAIL** |
-| G2 누적 펀딩 상대오차 | ≤ 15% | **18.05%** | **FAIL** |
-| G3 부호 일치율 | ≥ 95% | **82.88%** | **FAIL** |
+| G1 median absolute deviation of the rate difference | ≤ 0.00002 | **0.00003310** (exceeds it by a factor of 1.66) | **FAIL** |
+| G2 relative error of cumulative funding | ≤ 15% | **18.05%** | **FAIL** |
+| G3 sign agreement rate | ≥ 95% | **82.88%** | **FAIL** |
 
-**셋 다 실패. §3 의 사전 등록에 따라 §4 확장 분석을 실행하지 않았고, 임계값은 손대지 않았다.**
+**All three failed. Per §3's pre-registration, the §4 extension analysis was not run, and the thresholds were not touched.**
 
-### 7.1 왜 실패했나 — 임계값을 아깝게 놓친 게 아니다
+### 7.1 Why it failed — not a near miss on the thresholds
 
-가장 큰 실패는 G3 다. **6건 중 1건 꼴(17.1%, 1,137건)로 두 계약의 펀딩 부호가 반대였다.**
-같은 숏 포지션이 한쪽에서는 받고 다른 쪽에서는 내는 정산이 그만큼 있었다는 뜻이다.
-불일치의 38%는 양쪽 다 요율이 거의 0인 무해한 경우지만, 나머지는 그렇지 않다.
+G3 is the biggest failure. **In about 1 settlement in 6 (17.1%, 1,137 settlements) the two contracts had opposite funding signs.**
+That means there were that many settlements in which the same short position receives on one side and pays on the other.
+Of the mismatches, 38% are harmless cases where both rates are close to 0; the rest are not.
 
-| 정산 시각 (UTC) | COIN-M | USDT-M |
+| Settlement time (UTC) | COIN-M | USDT-M |
 |---|---:|---:|
 | 2020-09-04 00:00 | **−0.001423** | +0.000100 |
 | 2021-12-04 08:00 | **−0.001209** | +0.000063 |
 | 2023-03-13 00:00 | −0.000790 | +0.000100 |
 
-**갈라지는 지점이 하필 스트레스 국면이다.** 2021-12-04 는 청산 연쇄가 일어난 날이고, 그때
-COIN-M 요율은 −12bp 로 튀었는데 USDT-M 은 +0.6bp 에 머물렀다. 평시에는 비슷하다가
-**폭락에서 크게 벌어진다** — 그런데 이 확장 연구의 목적이 바로 폭락 표본을 늘리는 것이었다.
-프록시가 가장 필요한 구간에서 가장 못 쓴다.
+**Of all places, the divergence occurs in stress regimes.** 2021-12-04 was the day of a liquidation cascade, and on it
+the COIN-M rate spiked to −12bp while USDT-M stayed at +0.6bp. The two are similar in normal times but
+**diverge widely in crashes** — yet the very purpose of this extension study was to add crash samples.
+The proxy is least usable exactly where it is most needed.
 
-방향도 단순한 잡음이 아니다: COIN-M 은 정산의 18.6% 가 음(숏이 지불), USDT-M 은 13.9% 다.
-평균 요율은 COIN-M 0.0000871 / USDT-M 0.0001028 로 USDT-M 이 약 18% 더 후하다.
-BTC 증거금과 USDT 증거금은 참가자도 베이시스 동학도 다른 시장이라는 뜻이다.
+Nor is the direction simple noise: 18.6% of COIN-M settlements are negative (shorts pay), versus 13.9% for USDT-M.
+The mean rate is COIN-M 0.0000871 / USDT-M 0.0001028, i.e. USDT-M is about 18% more generous.
+This means BTC-margined and USDT-margined contracts are markets with different participants and different basis dynamics.
 
-### 7.2 무엇이 결론인가
+### 7.2 What the conclusion is
 
-* **USDT-M 은 COIN-M 펀딩의 대체물이 아니다.** 이 경로로는 표본을 늘릴 수 없다.
-* 부수적으로, **기존 V1~V4 가 COIN-M 자체 데이터만 쓴 것은 옳은 선택이었음이 확인됐다.**
-  프록시를 썼다면 펀딩 캐리 — V4 에서 유일하게 살아남은 효과 — 를 18% 과대평가했을 것이다.
-* **COIN-M 계약이 2020-08 에 상장됐다는 사실은 우회할 수 없다.** 그 이전의 실제 펀딩은
-  존재하지 않으며, 만들어낼 방법도 없다. 이건 해결할 문제가 아니라 **한계**다.
-* 따라서 **V3 §10.5 의 한계는 그대로 남는다**: 편익(폭락 시 지급) 표본은 여전히 1~2건이고,
-  이 데이터로 보험의 기대가치를 검증할 방법은 없다.
+* **USDT-M is not a substitute for COIN-M funding.** The sample cannot be extended by this route.
+* As a side finding, **it is confirmed that using only COIN-M's own data in V1–V4 was the right choice.**
+  Had the proxy been used, the funding carry — the only effect that survived V4 — would have been overestimated by 18%.
+* **The fact that the COIN-M contract was listed in 2020-08 cannot be circumvented.** Real funding before then
+  does not exist, and there is no way to manufacture it. This is not a problem to be solved but a **limitation**.
+* Therefore **the limitation in V3 §10.5 remains as it was**: there are still only 1–2 benefit samples (payouts in a crash),
+  and there is no way to verify the expected value of the insurance with this data.
 
-### 7.3 남은 선택지 — 별도 사전 등록이 필요하다
+### 7.3 The remaining option — a separate pre-registration is required
 
-V3 §10.4 의 판정(낮은 비율일수록 최종 BTC 가 시작 시점에 덜 좌우된다)은 **분산**에 관한
-것이고, 20% 기준 창간 분산폭 0.545 BTC 에 비해 같은 기간 펀딩 누적은 약 0.04 BTC 로
-**대략 7%** 다. 즉 그 판정은 대부분 **가격 경로**가 만든다. 그렇다면 펀딩을 0 또는 고정
-스트레스 값으로 두고 **가격 경로만으로 2020-03 · 2018 · 2014 폭락에서 분산 순서가 유지되는지**
-는 물을 수 있다.
+The verdict of V3 §10.4 (the lower the ratio, the less final BTC depends on the starting point) is about
+**dispersion**, and against the cross-window spread of 0.545 BTC at 20%, cumulative funding over the same period
+is about 0.04 BTC, **roughly 7%**. In other words, that verdict is driven mostly by the **price path**. That being
+so, with funding set to 0 or a fixed stress value, one can ask
+**whether the dispersion ordering holds in the crashes of 2020-03 · 2018 · 2014 on the price path alone**.
 
-**다만 이건 이 문서의 질문이 아니다.** 관문에서 떨어진 뒤 질문을 바꿔 이어붙이면 그게 바로
-되돌려 맞추기다. 하려면 **별도 문서에 새로 사전 등록**해야 하며, 최소한 다음을 먼저 못박아야
-한다: (a) 펀딩을 어떤 값으로 고정할지와 그 근거, (b) 7.1 에서 관측된 "폭락 시 COIN-M 요율이
-−12bp 까지 튄다"는 사실을 고정값이 어떻게 반영할지, (c) 가격 경로만의 결과를 실제 전략 성과로
-읽지 않겠다는 명시.
+**But that is not this document's question.** Changing the question after failing the gate and tacking it on is
+exactly retrofitting. Doing it requires **a fresh pre-registration in a separate document**, which must first nail
+down at least the following: (a) what value funding is fixed at, and the rationale; (b) how the fixed value will
+reflect the fact observed in 7.1 that "in a crash the COIN-M rate spikes as far as −12bp"; (c) an explicit statement
+that price-path-only results will not be read as actual strategy performance.

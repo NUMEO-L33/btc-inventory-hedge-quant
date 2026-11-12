@@ -1,121 +1,121 @@
-# 전략 V4 — 대조군 검정: 이 중에 무작위보다 나은 게 있는가
+# Strategy V4 — Control-arm tests: is any of this better than random?
 
-연구 스크립트: `scripts/control_arm_study.py` → 결과 `reports/v4_control_arms/`
-구현: `src/btc_inventory_quant/strategy/controls.py`, `src/btc_inventory_quant/backtest/statistics.py`
-데이터: `data/raw_new` (8h 마크가격 포함), 시드 200개
+Research script: `scripts/control_arm_study.py` → results in `reports/v4_control_arms/`
+Implementation: `src/btc_inventory_quant/strategy/controls.py`, `src/btc_inventory_quant/backtest/statistics.py`
+Data: `data/raw_new` (including 8h mark prices), 200 seeds
 
-> **결론 먼저**: 다중비교 보정 후 **유의미한 것은 하나도 없다.** 보정 전 유의했던 2건은 전부 **거래비용 회피 아티팩트**였고, 교란을 제거한 공정 대조군에서는 `regime_hedge_v1` 의 실제 타이밍이 **자기 신호를 무작위로 재배열한 것의 중앙값보다 못했다**(41 퍼센타일). V1 이후 줄곧 의심해온 "타이밍 알파 없음"이 이제 **대조군 대비로 측정**되었다.
+> **Conclusion first**: after multiple-comparison correction, **nothing is significant.** The 2 results that were significant before correction were both **transaction-cost-avoidance artefacts**, and against the fair control arm, with the confound removed, the actual timing of `regime_hedge_v1` **did worse than the median of random rearrangements of its own signal** (41st percentile). The "no timing alpha" suspected all along since V1 has now been **measured against a control arm**.
 
 ---
 
-## 1. 왜 이 연구가 필요했나
+## 1. Why this study was needed
 
-V1~V3 의 모든 결과는 **HODL 과 서로 간의 비교**였다. **쓸모없는 전략이 이 데이터에서 몇 점을 받는지**를 잰 적이 없다. 기준선이 없으면 "워크포워드 점수 −0.17"이 실력인지 노출 수준인지 운인지 구분할 방법이 없다.
+Every result in V1–V3 was a **comparison against HODL and against each other**. **What score a worthless strategy gets on this data** had never been measured. Without a baseline there is no way to tell whether a "walk-forward score of −0.17" reflects skill, exposure level or luck.
 
-이 공백은 외부 검증기 프로젝트의 방법론(`대조군 + Wilson 구간 + family 단위 판정`)을 검토하다 드러났다. 같은 검토에서 **이미 발표한 주장 1건의 오류**도 발견됐다(§2).
+This gap came to light while reviewing the methodology of an external validator project (`control arm + Wilson interval + family-level verdict`). The same review also uncovered **an error in 1 claim already published** (§2).
 
-## 2. 먼저 정정 — 승률 주장 철회
+## 2. A correction first — win-rate claim withdrawn
 
-이 프로젝트가 보고한 **모든 승률의 Wilson 95% 신뢰구간이 0.5를 포함한다.**
+For every win rate this project has reported, **the Wilson 95% confidence interval contains 0.5.**
 
-| 보고했던 값 | 점추정 | Wilson 95% CI | 의미 |
+| Value reported | Point estimate | Wilson 95% CI | Meaning |
 |---|---:|---:|---|
-| `fixed_50` 워크포워드 2/7 | 0.286 | [0.082, **0.641**] | 동전과 구분 불가 |
-| `regime_v1` 워크포워드 1/7 | 0.143 | [0.026, **0.513**] | 동전과 구분 불가 |
-| V3 전 비율 2/7 | 0.286 | [0.082, 0.641] | 동전과 구분 불가 |
-| 시작일 15% 8/14 | 0.571 | [0.326, 0.786] | 동전과 구분 불가 |
+| `fixed_50` walk-forward 2/7 | 0.286 | [0.082, **0.641**] | Indistinguishable from a coin flip |
+| `regime_v1` walk-forward 1/7 | 0.143 | [0.026, **0.513**] | Indistinguishable from a coin flip |
+| V3 at every ratio 2/7 | 0.286 | [0.082, 0.641] | Indistinguishable from a coin flip |
+| Start-date windows at 15% 8/14 | 0.571 | [0.326, 0.786] | Indistinguishable from a coin flip |
 
-`docs/strategy_v2.md` §6.1 에서 "정적이 동적을 이긴다"의 근거 5개 중 하나로 **"워크포워드 2/7 vs 1/7"** 을 인용했다. 두 구간은 거의 완전히 겹친다. **7개 표본의 1개 차이는 증거가 아니다** — 해당 축을 철회했고, 나머지 4개 축으로 결론은 유지된다. 이후 모든 승률은 `backtest/statistics.py::wilson_interval` 로 구간과 함께 보고한다.
+`docs/strategy_v2.md` §6.1 cited **"walk-forward 2/7 vs 1/7"** as one of the 5 pieces of evidence that "static beats dynamic". The two intervals overlap almost completely. **A difference of 1 in 7 samples is not evidence** — that axis has been withdrawn, and the conclusion stands on the remaining 4 axes. From now on, every win rate is reported together with its interval via `backtest/statistics.py::wilson_interval`.
 
-## 3. 사전 등록한 설계
+## 3. Pre-registered design
 
-| 항목 | 내용 |
+| Item | Details |
 |---|---|
-| 검정 대상 | `hodl`, `fixed_hedge 20%`(Shadow 기본값), `regime_hedge_v1`(V2 기각 전략) |
-| 대조군 | `shuffled`(봉 단위 순열) / `block_shuffled`(런 단위 순열) / `uniform` / `coin_flip`, 각 200시드 |
-| 통계량 | 전체기간 `final_btc`, 워크포워드 7폴드 `score_run` 평균, 전체기간 `max_drawdown_usd` |
-| 판정 | 단측 경험적 p = (1 + #{대조군 ≥ 관측}) / (1 + N), α = 0.05, **family 보정 필수** |
-| 보고 | 모든 승률은 Wilson 구간과 함께 |
+| Arms under test | `hodl`, `fixed_hedge 20%` (Shadow default), `regime_hedge_v1` (the strategy rejected in V2) |
+| Control arms | `shuffled` (bar-level permutation) / `block_shuffled` (run-level permutation) / `uniform` / `coin_flip`, 200 seeds each |
+| Statistics | full-period `final_btc`, mean `score_run` over the 7 walk-forward folds, full-period `max_drawdown_usd` |
+| Verdict | one-sided empirical p = (1 + #{control ≥ observed}) / (1 + N), α = 0.05, **family-wise correction mandatory** |
+| Reporting | every win rate together with its Wilson interval |
 
-대조군은 실제 전략과 **동일한 리스크 파이프라인**(일 20%p 캡, 최소 10%p 리밸런스, 85% 캡)을 통과한다.
+The control arms go through **the same risk pipeline** as the real strategies (20pp daily cap, 10pp minimum rebalance, 85% cap).
 
-## 4. 1차 결과 — 보정 전 2건 유의, 보정 후 0건
+## 4. Round 1 results — 2 significant before correction, 0 after correction
 
-실제 수행한 검정은 **15개**(2개 arm × 대조군 × 통계량 3종). Šidák 보정 α = **0.00341**.
+**15** tests were actually run (2 arms × control arms × 3 statistics). Šidák-corrected α = **0.00341**.
 
-| arm | 대조군 | 통계량 | p | 보정 전 | 보정 후 |
+| arm | Control arm | Statistic | p | Before correction | After correction |
 |---|---|---|---:|---|---|
-| fixed_20 | coin_flip | final_btc | 0.0348 | 유의 | **기각** |
-| regime_v1 | shuffled | wf_mean_score | 0.0348 | 유의 | **기각** |
-| regime_v1 | uniform | wf_mean_score | 0.0348 | 유의 | **기각** |
-| fixed_20 | uniform | final_btc | 0.0398 | 유의 | **기각** |
-| (나머지 11건) | | | ≥ 0.06 | — | 기각 |
+| fixed_20 | coin_flip | final_btc | 0.0348 | significant | **not significant** |
+| regime_v1 | shuffled | wf_mean_score | 0.0348 | significant | **not significant** |
+| regime_v1 | uniform | wf_mean_score | 0.0348 | significant | **not significant** |
+| fixed_20 | uniform | final_btc | 0.0398 | significant | **not significant** |
+| (remaining 11) | | | ≥ 0.06 | — | not significant |
 
-> **⚠️ 설계 한계 자백**: 시드 200개의 p 하한은 1/201 = **0.00498** 로, 보정 임계값 0.00341 **보다 크다.** 즉 이 설계는 **원리적으로 family 보정 유의를 탐지할 수 없다.** 보정 후 유의가 없다는 결과는 "효과가 없다"와 "검정력이 부족하다"를 구분하지 못한다. 보정 유의를 주장하려면 시드 ≥ 300 이 필요하다. 다만 §5·§6 의 결과는 이 한계와 무관하게 결론을 내린다.
+> **⚠️ Design limitation admitted**: with 200 seeds the p floor is 1/201 = **0.00498**, which is **larger than** the corrected threshold 0.00341. In other words, this design **cannot, in principle, detect family-wise corrected significance.** A result of no significance after correction cannot distinguish "there is no effect" from "the test is underpowered". Claiming corrected significance requires ≥ 300 seeds. However, the results in §5 and §6 reach their conclusions regardless of this limitation.
 
-## 5. 보정 전 유의했던 2건의 정체 — 거래비용이었다
+## 5. What the 2 results significant before correction really were — transaction costs
 
-`fixed_20` 이 "무작위보다 BTC가 많다"는 결과의 메커니즘을 확인했다.
+We examined the mechanism behind the result that `fixed_20` "has more BTC than random".
 
-| | 거래 수 | 수수료(BTC) | 펀딩(BTC) | 최종 BTC |
+| | Trades | Fees (BTC) | Funding (BTC) | Final BTC |
 |---|---:|---:|---:|---:|
-| `fixed_20` (실제) | **5** | −0.00037 | +0.0709 | **1.1594** |
-| `uniform` 대조군 | **962** | −0.0828 | +0.0721 | 0.9793 |
-| `coin_flip` 대조군 | **1,308** | −0.1176 | +0.0648 | 0.8382 |
+| `fixed_20` (actual) | **5** | −0.00037 | +0.0709 | **1.1594** |
+| `uniform` control | **962** | −0.0828 | +0.0721 | 0.9793 |
+| `coin_flip` control | **1,308** | −0.1176 | +0.0648 | 0.8382 |
 
-**펀딩 수취는 거의 동일하다**(같은 평균 노출이므로 당연). 차이는 전부 마찰이다. `final_btc` 격차 0.180 중 수수료만으로 0.083, 슬리피지까지 더하면 **약 92%가 거래비용**이다.
+**Funding received is almost identical** (naturally, given the same average exposure). The difference is entirely friction. Of the 0.180 gap in `final_btc`, fees alone account for 0.083; adding slippage, **about 92% is transaction costs**.
 
-즉 "정적 20%가 무작위를 이긴다"는 **"5번 거래하는 것이 962번 거래하는 것을 이긴다"**는 말이다. 시장에 대한 통찰이 아니다.
+In other words, "static 20% beats random" means **"trading 5 times beats trading 962 times"**. It is not an insight into the market.
 
-## 6. 대조군 자체의 결함과 수정 — 그리고 뒤집힌 결론
+## 6. The flaw in the control arm itself and its fix — and a reversed conclusion
 
-위 발견은 대조군 설계 결함을 드러낸다. **봉 단위 셔플은 타이밍뿐 아니라 지속성(persistence)까지 파괴한다.** 몇 주씩 같은 목표를 유지하던 전략이 거의 매일 바뀌는 전략이 되어, 비교 대상보다 훨씬 많이 거래한다.
+The finding above exposes a flaw in the control-arm design. **A bar-level shuffle destroys not only timing but also persistence.** A strategy that held the same target for weeks at a time becomes one that changes almost every day, so it trades far more than the arm it is compared with.
 
-| | 거래 수 | 실제 대비 |
+| | Trades | vs actual |
 |---|---:|---:|
-| `regime_v1` (실제) | 243 | 1.00× |
-| `shuffled` (봉 단위) | 1,607 | **6.61×** |
-| `block_shuffled` (런 단위) | 265 | **1.09×** |
+| `regime_v1` (actual) | 243 | 1.00× |
+| `shuffled` (bar-level) | 1,607 | **6.61×** |
+| `block_shuffled` (run-level) | 265 | **1.09×** |
 
-봉 단위 셔플과의 `final_btc` 격차 중 **69%가 수수료만으로 설명**된다. 그래서 §4의 `regime_v1 wf_mean_score p=0.0348` 은 타이밍 실력이 아니라 비용 차이를 잰 것이다.
+Of the `final_btc` gap against the bar-level shuffle, **69% is explained by fees alone**. So the `regime_v1 wf_mean_score p=0.0348` in §4 measured a cost difference, not timing skill.
 
-`BlockShuffleControl` 은 **목표값이 일정하게 유지되는 런(run) 단위로 순열**하여 런 길이 분포와 전이 횟수를 보존한다. 값의 다중집합은 동일하고, 시장과의 정렬만 파괴된다. 이것이 타이밍만 고립시키는 공정한 대조군이다.
+`BlockShuffleControl` **permutes whole runs, i.e. stretches over which the target value stays constant,** preserving the run-length distribution and the number of transitions. The multiset of values is identical; only the alignment with the market is destroyed. This is the fair control arm that isolates timing alone.
 
-### 공정 대조군 결과 (200시드, 거래 수 243 vs 270)
+### Fair control-arm results (200 seeds, trades 243 vs 270)
 
-| 통계량 | 관측 | 대조군 평균 | [p05, p95] | **퍼센타일** | p |
+| Statistic | Observed | Control mean | [p05, p95] | **Percentile** | p |
 |---|---:|---:|---:|---:|---:|
-| 최종 BTC | 1.0977 | **1.2913** | [0.591, 2.369] | **41.0** | 0.592 |
-| 워크포워드 평균점수 | −0.3017 | −0.3527 | [−0.511, −0.182] | 70.0 | 0.304 |
-| 최대낙폭 | −0.4757 | −0.5594 | [−0.688, −0.420] | 84.5 | 0.159 |
+| Final BTC | 1.0977 | **1.2913** | [0.591, 2.369] | **41.0** | 0.592 |
+| Walk-forward mean score | −0.3017 | −0.3527 | [−0.511, −0.182] | 70.0 | 0.304 |
+| Maximum drawdown | −0.4757 | −0.5594 | [−0.688, −0.420] | 84.5 | 0.159 |
 
-**`regime_v1` 의 실제 타이밍은 자기 신호를 무작위로 재배열한 것의 중앙값보다 BTC를 적게 만든다(41 퍼센타일).** 봉 단위 셔플에서 유의해 보였던 p=0.035 는 공정 대조군에서 **p=0.30** 이 된다.
+**The actual timing of `regime_v1` produces less BTC than the median of random rearrangements of its own signal (41st percentile).** The p=0.035 that looked significant against the bar-level shuffle becomes **p=0.30** against the fair control arm.
 
-낙폭 쪽 84.5 퍼센타일(p=0.159)이 그나마 가장 높지만 이 역시 유의하지 않으며, 애초에 15개 검정 중 하나다.
+On the drawdown side, the 84.5th percentile (p=0.159) is the highest, for what it is worth, but it is not significant either, and it is one of 15 tests in the first place.
 
-## 7. 판정
+## 7. Verdict
 
-| 질문 | 답 |
+| Question | Answer |
 |---|---|
-| 대조군보다 유의하게 나은 arm이 있는가? | **없다** (보정 후 0건) |
-| 보정 전 유의했던 2건은? | **거래비용 회피 아티팩트** (§5, 92%가 마찰) |
-| `regime_v1` 의 타이밍에 정보가 있는가? | **없다.** 공정 대조군의 41 퍼센타일 — 무작위 재배열의 중앙값보다 못함 |
-| `fixed_20` 이 무작위보다 나은가? | 거래를 덜 한다는 의미에서만. 시장 통찰은 아니다 |
-| 이 연구가 "효과 없음"을 증명했는가? | **아니다.** 검정력 부족(§4 자백)과 구분 못 함. "증거가 없다"이지 "없음의 증거"가 아니다 |
+| Is any arm significantly better than the control arms? | **No** (0 after correction) |
+| What were the 2 that were significant before correction? | **Transaction-cost-avoidance artefacts** (§5, 92% is friction) |
+| Does the timing of `regime_v1` carry information? | **No.** 41st percentile against the fair control arm — worse than the median random rearrangement |
+| Is `fixed_20` better than random? | Only in the sense that it trades less. Not a market insight |
+| Did this study prove "no effect"? | **No.** It cannot be told apart from insufficient power (admitted in §4). It is "absence of evidence", not "evidence of absence" |
 
-**V1 의 "타이밍 알파 없음"은 이제 인상이 아니라 측정값이다.** 그리고 V2 의 동적 레짐 기각은 대조군 관점에서 재확인된다 — 다만 그 근거는 "정적이 동적을 이겨서"가 아니라 **"동적이 자기 자신의 무작위 재배열도 못 이겨서"** 다.
+**V1's "no timing alpha" is now a measurement, not an impression.** And V2's rejection of the dynamic regime is reconfirmed from the control-arm perspective — except that the reason is not "because static beat dynamic" but **"because dynamic cannot even beat random rearrangements of itself"**.
 
-## 8. 운영에 미치는 영향
+## 8. Impact on operations
 
-1. **Shadow 기본값 `fixed_hedge 20%` 는 유지한다.** 근거는 바뀌지 않았다 — V3 §6의 강건성(역펀딩 −1bp 생존, 최악 2년 창)이지 성과 우위가 아니었다. 이번 결과는 그 겸손한 근거를 재확인할 뿐이다.
-2. **거래 빈도를 늘리는 방향의 어떤 변경도 §5의 표를 근거로 반대한다.** 962회 거래가 5회 거래에게 0.18 BTC 를 잃었다.
-3. `regime_hedge_v1` 을 되살리려는 시도는 §6의 41 퍼센타일을 먼저 반박해야 한다.
+1. **The Shadow default `fixed_hedge 20%` stays.** The rationale has not changed — it was the robustness shown in V3 §6 (surviving −1bp adverse funding, the worst 2-year window), not a performance edge. These results merely reconfirm that modest rationale.
+2. **Any change in the direction of more frequent trading is opposed, citing §5's table.** 962 trades lost 0.18 BTC to 5 trades.
+3. Any attempt to revive `regime_hedge_v1` must first refute §6's 41st percentile.
 
-## 9. 남은 한계
+## 9. Remaining limitations
 
-* **검정력 부족**: 시드 200으로는 family 보정 유의를 탐지할 수 없다(§4). 시드 300 이상 재실행이 필요하다.
-* 폭락 표본은 여전히 1개다. 대조군은 이 문제를 건드리지 못한다.
-* 블록 셔플은 런 길이 분포를 보존하지만, 같은 값의 런이 인접하면 병합되어 전이 수가 소폭 감소한다(243 → 265~270, 약 +9%). 완전한 보존은 아니다.
-* 시작일 의존성의 14개 창은 91일 간격으로 겹쳐 있어 독립 표본이 아니다. 그 Wilson 구간은 실제보다 좁다.
+* **Insufficient power**: with 200 seeds, family-wise corrected significance cannot be detected (§4). A re-run with 300 or more seeds is needed.
+* There is still only 1 crash sample. Control arms cannot touch this problem.
+* The block shuffle preserves the run-length distribution, but runs of equal value that end up adjacent merge, so the number of transitions decreases slightly (243 → 265–270, about +9%). Preservation is not perfect.
+* The 14 start-date-dependence windows overlap at 91-day spacing, so they are not independent samples. Their Wilson interval is narrower than the true one.
 
-**수익을 보장하지 않는다.** 이 문서의 결론은 "무엇이 통한다"가 아니라 **"무작위와 구별되는 것을 찾지 못했고, 찾았다고 생각했던 것은 수수료였다"** 이다.
+**Returns are not guaranteed.** The conclusion of this document is not "something works" but **"we found nothing distinguishable from random, and what we thought we had found was fees"**.

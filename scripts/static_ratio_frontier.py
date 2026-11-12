@@ -184,8 +184,6 @@ def chart_frontier(full: pd.DataFrame, ranking: pd.DataFrame, path: Path) -> Non
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from btc_inventory_quant.backtest.reports import L
-
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.2))
     f = full.sort_values("ratio")
     x = f["max_drawdown_usd"].astype(float) * 100
@@ -200,9 +198,9 @@ def chart_frontier(full: pd.DataFrame, ranking: pd.DataFrame, path: Path) -> Non
                 xytext=(6, 4),
                 fontsize=9,
             )
-    ax1.set_xlabel(L("USD 최대낙폭 (%)", "USD max drawdown (%)"))
-    ax1.set_ylabel(L("최종 BTC 수량", "final BTC"))
-    ax1.set_title(L("정적 헤지 프론티어 (전체 기간)", "Static hedge frontier (full period)"))
+    ax1.set_xlabel("USD max drawdown (%)")
+    ax1.set_ylabel("final BTC")
+    ax1.set_title("Static hedge frontier (full period)")
     ax1.grid(alpha=0.3)
 
     r = ranking.sort_values("ratio")
@@ -210,19 +208,19 @@ def chart_frontier(full: pd.DataFrame, ranking: pd.DataFrame, path: Path) -> Non
         r["ratio"] * 100,
         r["wf_mean_score"],
         "-o",
-        label=L("WF 평균 점수", "WF mean score"),
+        label="WF mean score",
         markersize=4,
     )
     ax2.plot(
         r["ratio"] * 100,
         r["plateau_score"],
         "-s",
-        label=L("평지 점수 (±5%p 평균)", "plateau score"),
+        label="plateau score",
         markersize=4,
     )
-    ax2.set_xlabel(L("정적 헤지 비율 (%)", "static hedge ratio (%)"))
-    ax2.set_ylabel(L("점수", "score"))
-    ax2.set_title(L("워크포워드 판정 (전체기간 아님)", "Walk-forward ranking (not full period)"))
+    ax2.set_xlabel("static hedge ratio (%)")
+    ax2.set_ylabel("score")
+    ax2.set_title("Walk-forward ranking (not full period)")
     ax2.legend()
     ax2.grid(alpha=0.3)
     fig.tight_layout()

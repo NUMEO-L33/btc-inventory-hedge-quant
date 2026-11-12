@@ -1,113 +1,113 @@
-# 백테스트 방법론
+# Backtest methodology
 
-구현: `src/btc_inventory_quant/backtest/` (engine, execution_model, funding_model, metrics, scenarios, walkforward, reports).
+Implementation: `src/btc_inventory_quant/backtest/` (engine, execution_model, funding_model, metrics, scenarios, walkforward, reports).
 
-## 1. 데이터
+## 1. Data
 
-| 데이터 | 출처 | 용도 |
+| Data | Source | Use |
 |---|---|---|
-| 거래 일봉 (`klines_1d`) | `GET /dapi/v1/klines?symbol=BTCUSD_PERP&interval=1d` | 지표 계산(종가), 체결가(다음 시가) |
-| 마크가격 일봉 (`mark_price_klines_1d`) | `GET /dapi/v1/markPriceKlines` | 미실현 손익, 자산가치, 헤지율, 목표 계약수 |
-| 인덱스 일봉 (`index_price_klines_1d`) | `GET /dapi/v1/indexPriceKlines?pair=BTCUSD` | 데이터 검증(마크/인덱스 괴리 > 2% 플래그) |
-| 펀딩 이력 (`funding_rate`) | `GET /dapi/v1/fundingRate` | 실제 펀딩 정산 (00/08/16 UTC) |
-| 계약 사양 (`exchange_info.json`) | `GET /dapi/v1/exchangeInfo` | 계약가치·수량 단위·틱 |
+| Trade-price daily candles (`klines_1d`) | `GET /dapi/v1/klines?symbol=BTCUSD_PERP&interval=1d` | Indicator calculation (close), fill price (next open) |
+| Mark price daily candles (`mark_price_klines_1d`) | `GET /dapi/v1/markPriceKlines` | Unrealized PnL, equity value, hedge ratio, target contract count |
+| Index daily candles (`index_price_klines_1d`) | `GET /dapi/v1/indexPriceKlines?pair=BTCUSD` | Data validation (flag on mark/index divergence > 2%) |
+| Funding history (`funding_rate`) | `GET /dapi/v1/fundingRate` | Actual funding settlements (00/08/16 UTC) |
+| Contract specification (`exchange_info.json`) | `GET /dapi/v1/exchangeInfo` | Contract value, quantity unit, tick |
 
-* 모든 원본 JSON 페이지는 SHA-256 체크섬과 함께 `data/raw/manifest.json` 에 기록되며 `python -m btc_inventory_quant data verify` 로 재검증한다.
-* 미완결 캔들(`close_time ≥ as_of`)은 제외. 2020-08-11 ~ 2026-09-01 완결 일봉 2,213개, 펀딩 6,640건.
-* 데이터 이상: 2026-06-30 08:00 UTC 펀딩 레코드 1건이 거래소 원본에 없음(그대로 둠, 해당 정산 없음으로 처리).
+* Every raw JSON page is recorded in `data/raw/manifest.json` together with its SHA-256 checksum and is re-verified with `python -m btc_inventory_quant data verify`.
+* Incomplete candles (`close_time ≥ as_of`) are excluded. 2020-08-11 ~ 2026-09-01: 2,213 completed daily candles, 6,640 funding records.
+* Data anomaly: 1 funding record (2026-06-30 08:00 UTC) is missing from the exchange's source data (left as is; treated as no settlement at that time).
 
-## 2. 체결 타임라인 (look-ahead 방지)
+## 2. Fill timeline (look-ahead prevention)
 
 ```
-[j-1 일봉 종료 = j일 00:00 UTC] 신호 계산 (완결 캔들만)
-[j일 00:00] 00:00 펀딩 정산 (전일 포지션)
-[j일 시가]  현재 유효 헤지율·목표 계약수 계산(mark_open_j) → 리스크 파이프라인 → 주문 → open_j × (1 ± 슬리피지) 체결, Taker 수수료
-[j일 08:00, 16:00] 펀딩 정산 (체결 후 포지션)
-[j일 종료] mark_close_j 로 평가 → 일일 기록
+[close of candle j-1 = day j 00:00 UTC] compute signal (completed candles only)
+[day j 00:00] 00:00 funding settlement (previous day's position)
+[day j open]  compute current effective hedge ratio and target contract count (mark_open_j) → risk pipeline → order → fill at open_j × (1 ± slippage), Taker fee
+[day j 08:00, 16:00] funding settlement (post-fill position)
+[day j close] valuation at mark_close_j → daily record
 ```
 
-* 신호를 만든 캔들에서 체결하지 않는다(`test_signal_executes_on_next_open_never_same_candle`).
-* 미래 데이터를 잘라내도 과거 결과가 변하지 않는다(`test_truncating_future_data_does_not_change_the_past`).
-* 지표·전략은 인과적이다(`test_indicators_are_causal`, `test_strategy_is_causal`).
+* No fill happens on the candle that produced the signal (`test_signal_executes_on_next_open_never_same_candle`).
+* Truncating future data does not change past results (`test_truncating_future_data_does_not_change_the_past`).
+* Indicators and the strategy are causal (`test_indicators_are_causal`, `test_strategy_is_causal`).
 
-## 3. 비용 모델
+## 3. Cost model
 
-| 항목 | 기본값 | 근거 |
+| Item | Default | Rationale |
 |---|---|---|
-| Taker 수수료 | 0.05% | 보수적 VIP0 (2021 공지 0.050%; 현재 요율은 `commissionRate` 로 확인) |
-| Maker 수수료 | 0.02% | 보수적(공지 0.010%) — `use_maker: true` 시나리오에서만 사용 |
-| 슬리피지 | 5 bp | BTCUSD_PERP 유동성 기준 보수적 가정, 시나리오 ×3 |
-| 펀딩 | 실제 이력 | `funding_btc = 계약수×100/마크×비율`, 숏은 양(+)이면 수취 |
-| 부분체결 | 확률 p, 비율 r | 잔량은 다음날 재주문(`reorder_missed_next_day`) |
-| 주문 누락 | 인덱스/N번째 | 해당 리밸런싱 미체결, 다음날 재판단 |
-| 반올림 | 계약 정수 내림 | 목표 명목가치 이하로만 체결 |
+| Taker fee | 0.05% | Conservative VIP0 (2021 announcement: 0.050%; the current rate is checked with `commissionRate`) |
+| Maker fee | 0.02% | Conservative (announced 0.010%) — used only in the `use_maker: true` scenario |
+| Slippage | 5 bp | Conservative assumption based on BTCUSD_PERP liquidity; ×3 in a scenario |
+| Funding | Actual history | `funding_btc = contracts×100/mark×rate`; the short receives when it is positive (+) |
+| Partial fills | Probability p, fraction r | The remainder is re-ordered the next day (`reorder_missed_next_day`) |
+| Missed orders | By index / every Nth | That rebalance goes unfilled; decided again the next day |
+| Rounding | Whole contracts, rounded down | Fills only at or below the target notional |
 
-수수료 = 계약수 × 100 / 체결가 × 요율 (BTC). 슬리피지 비용은 체결가에 반영되며 원장에 참고 항목(`SLIPPAGE`)으로 별도 기록한다.
+Fee = contracts × 100 / fill price × rate (BTC). The slippage cost is reflected in the fill price and is recorded separately in the ledger as an informational entry (`SLIPPAGE`).
 
-## 4. 성과 지표
+## 4. Performance metrics
 
-BTC 기준(최종 BTC, 순증가, CAGR, MDD)과 USD 기준(최종 USD, CAGR, MDD, HODL 대비 초과성과)을 항상 함께 계산한다. 시작 USD = 시작 BTC × 첫 체결일 마크 시가. HODL 은 1 BTC 를 그대로 보유한 경우다.
+BTC-based metrics (final BTC, net increase, CAGR, MDD) and USD-based metrics (final USD, CAGR, MDD, excess performance vs. HODL) are always computed together. Starting USD = starting BTC × mark open on the first fill day. HODL is the case of simply holding 1 BTC.
 
-판정 규칙(`metrics.verdict`): BTC 수량 감소 또는 USD 가 HODL 대비 −30% 이하 또는 USD MDD 가 HODL 보다 5%p 이상 나쁘면 **FAIL**; USD 가 HODL 대비 −10% 이하면 **WEAK**; 그 외 **PASS**. BTC 만 늘고 USD 가 크게 줄면 성공으로 보지 않는다.
+Verdict rules (`metrics.verdict`): **FAIL** if the BTC quantity decreases, or USD is −30% or worse vs. HODL, or USD MDD is worse than HODL's by 5%p or more; **WEAK** if USD is −10% or worse vs. HODL; otherwise **PASS**. A result in which only BTC grows while USD falls sharply is not regarded as a success.
 
-주의(항등식): HODL 벤치마크가 같은 BTC 이므로 `HODL 대비 USD 초과성과 = 최종 BTC / 시작 BTC − 1` 로 **BTC 순증가율과 수학적으로 동일**하다. 따라서 두 번째 기준은 'HODL 대비'가 아니라 **USD 절대 수익률·최대 낙폭**(가치 붕괴 여부)으로 본다.
+Note (identity): because the HODL benchmark is the same BTC, `USD excess performance vs. HODL = final BTC / starting BTC − 1`, which is **mathematically identical to the net BTC growth rate**. The second criterion is therefore read not as 'vs. HODL' but as **absolute USD return and maximum drawdown** (whether value collapses).
 
-BTC 손익 분해: 순 BTC 증가 = 헤지 타이밍 손익(실현+미실현) + 펀딩 + 수수료. 펀딩이 전부라면 타이밍 알파는 없는 것이다.
+BTC PnL decomposition: net BTC increase = hedge-timing PnL (realized + unrealized) + funding + fees. If funding is all of it, there is no timing alpha.
 
-## 5. 민감도 시나리오 (`scenarios.py`)
+## 5. Sensitivity scenarios (`scenarios.py`)
 
-기본 / 수수료 ×2 / 슬리피지 ×3 / 불리한 펀딩(−1bp, −3bp per 8h) / 신호 1일 지연 / 리밸런싱 1회 누락(#1, #5) / 10회마다 누락 / 부분체결(50%, p=0.5) / 복합(수수료×2+슬리피지×3+지연) / Maker 체결.
+Base / fees ×2 / slippage ×3 / adverse funding (−1bp, −3bp per 8h) / 1-day signal delay / 1 missed rebalance (#1, #5) / a miss every 10th rebalance / partial fills (50%, p=0.5) / combined (fees×2 + slippage×3 + delay) / Maker fills.
 
-## 6. 과최적화 방지 (`walkforward.py`)
+## 6. Overfitting prevention (`walkforward.py`)
 
-1. **시간순 분리**: 워밍업 이후 거래 가능 일수의 60% 연구 / 20% 검증 / 20% OOS. 무작위 섞기 없음.
-2. **제한 그리드(72개)**: bull {0.10, 0.20} × neutral {0.30, 0.45, 0.60} × bear {0.70, 0.85} × 확인일 {2, 5, 10} × 기울기 {5, 10}.
-3. **목적함수**: `0.5·CAGR_BTC + 0.5·(CAGR_USD − HODL_CAGR_USD) − 0.25·max(0, MDD_HODL − MDD)`.
-4. **Plateau 선호**: 최종 점수 = 0.5·자기 점수 + 0.5·인접 조합(한 파라미터 한 칸) 평균. 고립된 최고점보다 안정 영역을 택한다.
-5. **Nested Walk-forward**: 훈련 730일 → 시험 180일, 180일 전진. 각 폴드에서 훈련 구간만으로 그리드 선택 → 시험 구간 평가. 고정 V1·HODL·고정 50% 와 폴드별 비교.
-6. **시작일 의존성**: 91일 간격 시작, 2년 보유 결과 분포.
-7. **기록**: 모든 그리드 결과·폴드·점수·설정 해시·seed·git 커밋을 `reports/research-*/` 에 저장.
+1. **Chronological split**: of the tradable days after warm-up, 60% research / 20% validation / 20% OOS. No random shuffling.
+2. **Restricted grid (72 combinations)**: bull {0.10, 0.20} × neutral {0.30, 0.45, 0.60} × bear {0.70, 0.85} × confirmation days {2, 5, 10} × slope {5, 10}.
+3. **Objective function**: `0.5·CAGR_BTC + 0.5·(CAGR_USD − HODL_CAGR_USD) − 0.25·max(0, MDD_HODL − MDD)`.
+4. **Plateau preference**: final score = 0.5·own score + 0.5·mean of the neighboring combinations (one parameter, one step). A stable region is chosen over an isolated peak.
+5. **Nested Walk-forward**: train 730 days → test 180 days, rolling forward 180 days. In each fold the grid point is selected using the training window only → evaluated on the test window. Compared fold by fold with fixed V1 / HODL / fixed 50%.
+6. **Start-date dependence**: start dates 91 days apart, distribution of 2-year holding results.
+7. **Records**: all grid results, folds, scores, config hashes, seeds and git commits are saved under `reports/research-*/`.
 
-**OOS 결과를 본 뒤 파라미터를 바꾸면 그 구간은 더 이상 OOS 가 아니다.** 이 프로젝트의 OOS 구간 결과는 한 번 보고된 뒤 파라미터 변경 근거로 사용하지 않는다.
+**If parameters are changed after looking at the OOS results, that period is no longer OOS.** In this project, OOS-period results, once reported, are not used as grounds for changing parameters.
 
-## 6-2. 펀딩 정산 시점 마크가격 (우선순위)
+## 6-2. Mark price at funding settlement time (priority order)
 
-구현: `data/settlement_marks.py`, `backtest/funding_model.py`
+Implementation: `data/settlement_marks.py`, `backtest/funding_model.py`
 
-| 순위 | `mark_source` | 출처 | 적용 구간 |
+| Priority | `mark_source` | Source | Period applied |
 |---|---|---|---|
-| 1 | `record` | `fundingRate` 응답의 `markPrice` 필드 | 2023-11-01 이후 |
-| 2 | `kline_8h` | `markPriceKlines?interval=8h` 의 **시가**(봉 시작 시각 = 정산 시각) | 8h 데이터셋을 받은 경우 전 구간 |
-| 3 | `daily_open` / `daily_interp` | 일봉 마크 OHLC 근사 (00시=시가, 08/16시=시가→종가 선형보간) | 위 둘이 모두 없을 때 |
+| 1 | `record` | The `markPrice` field of the `fundingRate` response | From 2023-11-01 onward |
+| 2 | `kline_8h` | The **open** of `markPriceKlines?interval=8h` (bar start time = settlement time) | The entire period, if the 8h dataset has been downloaded |
+| 3 | `daily_open` / `daily_interp` | Approximation from daily mark OHLC (00h = open, 08/16h = linear interpolation open→close) | When neither of the above is available |
 
-8h 데이터셋은 **선택 사항**이다. `python -m btc_inventory_quant data --raw-dir <dir> --include-8h-mark download` 로 받으며, 디렉터리가 없으면 3순위로 자동 폴백하고 결과는 이전과 완전히 동일하다(`test_no_dataset_reproduces_the_previous_behaviour_exactly`).
+The 8h dataset is **optional**. It is downloaded with `python -m btc_inventory_quant data --raw-dir <dir> --include-8h-mark download`; if the directory does not exist, the code automatically falls back to priority 3 and the results are exactly identical to before (`test_no_dataset_reproduces_the_previous_behaviour_exactly`).
 
-**왜 필요했나**: 3순위 근사가 전체 정산의 **53.2%**(6,640건 중 3,533건, 2020-08~2023-11)를 덮고 있었다.
+**Why it was needed**: the 3rd-priority approximation covered **53.2%** of all settlements (3,533 of 6,640 settlements, 2020-08~2023-11).
 
-**실제 영향 — 구간별 실측**: 8h 데이터셋을 참값으로 놓고 3순위 근사와 직접 비교했다.
+**Actual impact — measured by period**: the 8h dataset was taken as ground truth and compared directly with the 3rd-priority approximation.
 
-| 구간 | 건수 | 평균 \|상대오차\| | 중앙값 / p95 | 최대 | **누적 펀딩 오차** |
+| Period | Count | Mean \|relative error\| | Median / p95 | Max | **Cumulative funding error** |
 |---|---:|---:|---:|---:|---:|
-| **2020-08 → 2023-10** (근사가 실제 쓰이던 구간) | 3,530 | 0.716% | 0.280% / 2.864% | **15.288%** | **+0.2352%** |
-| 2023-11 → 2026-09 (`record` 존재, 참고용) | 3,109 | 0.523% | 0.263% / 1.891% | 7.769% | +0.0094% |
+| **2020-08 → 2023-10** (period in which the approximation was actually used) | 3,530 | 0.716% | 0.280% / 2.864% | **15.288%** | **+0.2352%** |
+| 2023-11 → 2026-09 (`record` available; for reference) | 3,109 | 0.523% | 0.263% / 1.891% | 7.769% | +0.0094% |
 
-> **⚠️ 최초 추정치 정정**: 이 작업을 시작할 때는 참값이 있던 2023-11 이후 구간만으로 누적 오차를 **+0.0096%** 로 추정했다. **틀렸다.** 실제 근사가 쓰이던 2020-2023 구간은 변동성이 훨씬 커서 누적 오차가 **+0.2352% — 추정의 25배**였다. 잔잔한 구간에서 변동성 구간으로 외삽한 것이 오류였다. 8h 데이터를 받기 전에는 이 구간의 참값이 없었으므로 검증할 방법도 없었다는 점을 함께 기록한다.
+> **⚠️ Correction of the initial estimate**: when this work started, the cumulative error was estimated at **+0.0096%** using only the period from 2023-11 onward, where ground truth was available. **That was wrong.** The 2020-2023 period, in which the approximation was actually used, was far more volatile, and its cumulative error was **+0.2352% — 25× the estimate**. The mistake was extrapolating from a calm period to a volatile one. It is also recorded here that, before the 8h data was downloaded, there was no ground truth for this period and hence no way to verify it.
 
-근사는 펀딩 수취액을 **과대계상**하는 방향이었다(`approx > true`). 따라서 참값으로 바꾸면 성과가 소폭 **하락**한다 — 즉 기존 보고서는 근소하게 낙관적이었다.
+The approximation was biased toward **overstating** funding received (`approx > true`). Switching to the true values therefore **lowers** performance slightly — i.e., the earlier reports were marginally optimistic.
 
-**백테스트 실측 델타** (`scripts/compare_snapshots.py --old data/raw --new data/raw_new`):
+**Measured backtest deltas** (`scripts/compare_snapshots.py --old data/raw --new data/raw_new`):
 
-| 전략 | final_btc | 총 펀딩 | 최대낙폭 | 판정 |
+| Strategy | final_btc | Total funding | Maximum drawdown | Verdict |
 |---|---:|---:|---:|---|
-| `fixed_50` | 1.245966 → 1.244574 (**−0.11%**) | −0.38% | −0.09%p 악화 | PASS → PASS |
-| `regime_v1` | 1.108451 → 1.097685 (**−0.97%**) | −1.11% | −0.45%p 악화 | PASS → PASS |
+| `fixed_50` | 1.245966 → 1.244574 (**−0.11%**) | −0.38% | −0.09%p worse | PASS → PASS |
+| `regime_v1` | 1.108451 → 1.097685 (**−0.97%**) | −1.11% | −0.45%p worse | PASS → PASS |
 
-`regime_v1` 이 더 크게 영향받는 이유는 포지션이 자주·크게 변해서 오차가 큰 날에 더 큰 포지션이 노출되기 때문이다. **OOS 구간(2023-11 이후) 숫자는 완전히 동일하다** — 그 구간은 원래부터 `record` 참값을 쓰고 있었다. 판정은 하나도 바뀌지 않았고 (§4 워크포워드 폴드 승률도 2/7·1/7 그대로), **정적 헤지가 동적 레짐을 이긴다는 결론은 오히려 격차가 벌어졌다**(0.1375 → 0.1469).
+`regime_v1` is affected more because its position changes often and by large amounts, so larger positions are exposed on the days with large errors. **The numbers for the OOS period (2023-11 onward) are exactly identical** — that period was already using the `record` true values. Not a single verdict changed (the §4 walk-forward fold win rates are also unchanged at 2/7 and 1/7), and **on the conclusion that the static hedge beats the dynamic regime, the gap actually widened** (0.1375 → 0.1469).
 
-## 7. 알려진 한계
+## 7. Known limitations
 
-* 일봉 해상도: 일중 **청산** 시점 마크가격은 여전히 근사. 펀딩 정산 시점은 8h 데이터셋으로 해소 가능(§6-2).
-* 계약 사양 이력: 현재 사양(100 USD/계약, 정수 계약)을 전 기간에 적용.
-* 슬리피지·부분체결은 모델값. 실거래 체결 데이터로 재보정 필요.
-* 거래소 수수료율 변경 이력 미반영(보수적 고정값).
-* 단일 심볼·단일 거래소.
+* Daily resolution: the mark price at the moment of an intraday **liquidation** is still approximated. Funding settlement times can be resolved with the 8h dataset (§6-2).
+* Contract specification history: the current specification (100 USD/contract, whole contracts) is applied to the entire period.
+* Slippage and partial fills are model values. They need to be recalibrated with live-trading fill data.
+* The history of exchange fee-rate changes is not reflected (conservative fixed values).
+* Single symbol, single exchange.

@@ -1,56 +1,56 @@
-# 리스크 관리
+# Risk management
 
-모든 수치 한도는 `configs/*.yaml` 의 `risk` 섹션(`config/schema.py::RiskLimits`) 한 곳에서만 정의한다.
+All numeric limits are defined in one place only: the `risk` section of `configs/*.yaml` (`config/schema.py::RiskLimits`).
 
-## 1. 포지션 한도
+## 1. Position limits
 
-| 한도 | 값 | 강제 위치 |
+| Limit | Value | Enforced in |
 |---|---|---|
-| 최대 유효 헤지율 | 85% (+3%p 드리프트 허용 후 SAFE_HOLD) | `risk/limits.py::clamp_hedge_ratio`, `validate_order_against_position`, `risk/guards.py::check_hedge_cap` |
-| 최소 헤지율 | 0% | 동상 |
-| 일 최대 헤지율 변경 | 20%p | `apply_daily_change_cap` |
-| 최소 리밸런싱 차이 | 10%p | `rebalance_needed` |
-| 선물 롱 | 금지 | `InversePosition(allow_long=False)`, `RiskLimits.allow_long: Literal[False]`, 가드 `LONG_POSITION`, reconciliation `LONG_POSITION` |
-| BUY 수량 | ≤ 현재 숏 | `validate_reduce_only_buy`, `BUY_EXCEEDS_SHORT`, 리밸런서 캡 |
-| 유효 레버리지 | ≤ 1 | `NOTIONAL_EXCEEDS_EQUITY` |
-| 숏 명목가치 | ≤ 총자산 USD | 동상 |
-| 미확인 주문 존재 시 | 신규 주문 금지 | `OrderManager.submit` → `DuplicateRiskError` |
-| 마틴게일·물타기 | 금지 | 목표는 자산 비율에서만 도출(손실 기반 증액 로직 없음) |
+| Maximum effective hedge ratio | 85% (+3%p drift tolerated, then SAFE_HOLD) | `risk/limits.py::clamp_hedge_ratio`, `validate_order_against_position`, `risk/guards.py::check_hedge_cap` |
+| Minimum hedge ratio | 0% | Same as above |
+| Maximum daily hedge ratio change | 20%p | `apply_daily_change_cap` |
+| Minimum rebalancing difference | 10%p | `rebalance_needed` |
+| Futures long | Prohibited | `InversePosition(allow_long=False)`, `RiskLimits.allow_long: Literal[False]`, guard `LONG_POSITION`, reconciliation `LONG_POSITION` |
+| BUY quantity | ≤ current short | `validate_reduce_only_buy`, `BUY_EXCEEDS_SHORT`, rebalancer cap |
+| Effective leverage | ≤ 1 | `NOTIONAL_EXCEEDS_EQUITY` |
+| Short notional | ≤ total equity in USD | Same as above |
+| While an unconfirmed order exists | No new orders | `OrderManager.submit` → `DuplicateRiskError` |
+| Martingale / averaging down | Prohibited | The target is derived only from the equity ratio (no loss-based sizing-up logic) |
 
-## 2. 계좌 구조 권장
+## 2. Recommended account structure
 
-* 자동매매 전용 **서브계정**, 다른 선물 포지션·다른 봇·수동매매 없음.
-* BTC 이외 담보 없음. API **출금 권한 비활성화**, **IP 화이트리스트**.
-* **One-way Position Mode**(통합 이후 UM/CM 공유 설정임에 주의), Cross Margin 기본(런타임 확인).
-* 레버리지 UI 값은 1 로 두되, 통제는 유효 헤지율로 한다.
+* A **sub-account** dedicated to automated trading, with no other futures positions, no other bots and no manual trading.
+* No collateral other than BTC. API **withdrawal permission disabled**, **IP whitelist**.
+* **One-way Position Mode** (note that since the unification it is a setting shared by UM/CM), Cross Margin by default (checked at runtime).
+* Leave the leverage value in the UI at 1 but exercise control through the effective hedge ratio.
 
-## 3. 데이터·시간 가드
+## 3. Data and time guards
 
-| 조건 | 임계값 | 결과 |
+| Condition | Threshold | Result |
 |---|---|---|
-| 마크가격 stale | > 120 s | SAFE_HOLD |
-| 완결 캔들 stale | > 26 h | SAFE_HOLD |
-| 서버 시간 오차 | > 1000 ms | SAFE_HOLD |
-| 계약 사양 변경(contractSize/step/tick) | 불일치 | SAFE_HOLD |
+| Mark price stale | > 120 s | SAFE_HOLD |
+| Completed candle stale | > 26 h | SAFE_HOLD |
+| Server time offset | > 1000 ms | SAFE_HOLD |
+| Contract spec change (contractSize/step/tick) | Mismatch | SAFE_HOLD |
 
-## 4. 상태 일치 가드
+## 4. State consistency guards
 
-* 내부 DB vs 거래소: 포지션 계약수, 평균가(0.1%), 지갑 잔고(1e-5 BTC), 미지 주문, 포지션 모드, 캡 → 하나라도 불일치 시 SAFE_HOLD.
-* 주문 후 재확인: 체결 후 거래소 포지션이 기대치와 다르면 SAFE_HOLD.
-* 예상외 입출금(income TRANSFER)은 원장에 외부 흐름으로 기록하고 SAFE_HOLD 로 운영자 확인을 요구한다.
+* Internal DB vs exchange: position contract count, average price (0.1%), wallet balance (1e-5 BTC), unknown orders, position mode, cap → SAFE_HOLD if even one of them disagrees.
+* Post-order re-check: if the exchange position after a fill differs from what was expected, SAFE_HOLD.
+* An unexpected deposit or withdrawal (income TRANSFER) is recorded in the ledger as an external flow, and SAFE_HOLD is used to require operator confirmation.
 
-## 5. 청산 위험
+## 5. Liquidation risk
 
-헤지율 ≤ 85%·레버리지 ≤ 1 이면 단일 숏 포지션의 청산가는 이론상 존재하지 않는다(`docs/inverse_math.md` §7). 그래도 유지증거금/자산 비율이 25% 를 넘으면 SAFE_HOLD 하며, 거래소 `positionRisk.liquidationPrice` 를 모니터링 지표로 기록한다.
+A single short position theoretically has no liquidation price when hedge ratio ≤ 85% and leverage ≤ 1 (`docs/inverse_math.md` §7). Even so, if the maintenance-margin-to-equity ratio exceeds 25%, the system goes into SAFE_HOLD, and the exchange's `positionRisk.liquidationPrice` is recorded as a monitoring metric.
 
-## 6. Fail-safe 원칙
+## 6. Fail-safe principles
 
-장애 시 **숏을 전부 청산하지 않는다**(하락 노출을 갑자기 키울 수 있음).
+On failure, **do not close out the entire short** (doing so could suddenly increase downside exposure).
 
-1. 신규 주문 중단 → 2. 미체결 취소 → 3. 포지션 유지 → 4. 거래소 상태 재조회 → 5. DB 와 비교 → 6. 일치 확인 전까지 SAFE_HOLD → 7. 알림.
-SAFE_HOLD 는 DB 에 영속되어 재시작해도 유지되며, `safe-hold --release --ack <문자열>` 로만 해제한다.
+1. Stop new orders → 2. Cancel open orders → 3. Keep the position → 4. Re-query the exchange state → 5. Compare with the DB → 6. SAFE_HOLD until agreement is confirmed → 7. Alert.
+SAFE_HOLD is persisted in the DB and survives restarts; it is released only with `safe-hold --release --ack <string>`.
 
-## 7. Live 게이트 (전부 만족해야 실주문)
+## 7. Live gates (all must pass for real orders)
 
-`BIQ_ENABLE_LIVE_TRADING=true` · `live.live_trading_enabled: true` · `--confirm-live` · acknowledgement 3중 일치(`I_ACCEPT_COIN_M_TRADING_RISK`) · API 키 존재·권한 · 시간 동기화 · 포지션 일치 · 미확인 주문 없음 · 헤지율 한도 이내 · 시세 정상 · 계약사양 검증 · One-way · 자산 ≤ `max_initial_equity_btc`(소액 가드).
-하나라도 실패하면 **읽기 전용(의도만 기록)** 으로 실행된다.
+`BIQ_ENABLE_LIVE_TRADING=true` · `live.live_trading_enabled: true` · `--confirm-live` · 3-way acknowledgement match (`I_ACCEPT_COIN_M_TRADING_RISK`) · API key present, with permissions · time synchronized · positions agree · no unconfirmed orders · hedge ratio within limits · market data healthy · contract spec verified · One-way · equity ≤ `max_initial_equity_btc` (small-size guard).
+If even one fails, it runs **read-only (recording intent only)**.

@@ -1,193 +1,196 @@
-# 인시던트 2026-09-30 — testnet: 기상 직후 시계 오차로 SAFE_HOLD, 이틀간 죽어 있던 유저 스트림
+# Incident 2026-09-30 — testnet: SAFE_HOLD on clock skew right after wake, and a user stream dead for two days
 
-**분류**: 운영 장애 2건 (실제 어댑터 경로, 데모 계좌) · **손실**: 0 · **관찰 손실**: testnet 판단 09-30 1일 ·
-**발견**: Telegram CRITICAL 알림 → 사용자 전달 (09-30 01:00 UTC 경)
+**Category**: 2 operational failures (real adapter path, demo account) · **Loss**: 0 · **Observation lost**: 1 day of testnet decisions (09-30) ·
+**Discovered**: Telegram CRITICAL alert → relayed by the user (around 09-30 01:00 UTC)
 
-testnet 에이전트를 붙인 이유가 "모의가 못 잡는 실계좌 경로의 문제를 돈 없이 찾는 것"이었고,
-두 번째 주에 두 개를 더 찾았다. 둘 다 live 에서 그대로 났을 것들이다.
+The point of adding the testnet agent was "to find, with no money at stake, the problems on the real-account path that the
+simulation cannot catch", and in its second week it found two more. Both would have happened exactly the same way in live.
 
 ---
 
-## 1. 무슨 일이 있었나
+## 1. What happened
 
-| 시각 (UTC) | 사건 |
+| Time (UTC) | Event |
 |---|---|
-| 09-28 01:47 | testnet 유저 스트림의 keepalive `PUT /dapi/v1/listenKey` 가 `-1125 This listenKey does not exist` 로 거부되기 시작. **이후 5초마다 같은 오류 반복 — 이틀간 약 3만 줄** |
-| 09-29 00:42 | 판단 시각에 맥북 절전 → 기상 직후 `ConnectError` → 재시도 → 00:53 판단 성공 (재시도 경로 첫 현장 검증) |
-| 09-30 00:05 | 같은 상황. 00:05 실패, 00:34 실패, **00:44:11 재시도에서 `CLOCK_SKEW: server offset 1302 ms` → critical → SAFE_HOLD** |
+| 09-28 01:47 | The testnet user stream's keepalive `PUT /dapi/v1/listenKey` starts being rejected with `-1125 This listenKey does not exist`. **From then on the same error repeats every 5 seconds — about 30,000 lines over two days** |
+| 09-29 00:42 | MacBook asleep at the decision time → `ConnectError` right after wake → retry → decision succeeds at 00:53 (first field verification of the retry path) |
+| 09-30 00:05 | Same situation. 00:05 fails, 00:34 fails, **on the 00:44:11 retry `CLOCK_SKEW: server offset 1302 ms` → critical → SAFE_HOLD** |
 | 09-30 01:0x | Telegram `[testnet] [CRITICAL] safe_hold_engaged` |
 
-shadow 는 같은 두 아침을 재시도로 무사히 넘겼다(00:53:27, 00:44:18 판단). 시계 가드는 페이퍼
-거래소에선 항상 0 을 돌려주므로 testnet 에서 처음 실전을 만난 것이다.
+shadow got through the same two mornings safely thanks to the retry (decisions at 00:53:27, 00:44:18). The clock guard always
+gets 0 from the paper exchange, so testnet was the first time it met real conditions.
 
-## 2. 원인 ① — 시계 오차를 즉시 래치했다
+## 2. Cause ① — clock skew was latched immediately
 
-`check_clock` 은 |오차| > 1000 ms 면 무조건 critical 이었다. 그런데 1302 ms 가 측정된 시점은
-네트워크가 돌아온 지 3초 뒤다. 맥북은 절전에서 깨면 NTP 가 다시 맞추기 전까지 시계가 1~2초
-어긋나 있는 일이 흔하고, 측정 자체도 왕복 지연이 비대칭인 갓 붙은 Wi-Fi 에서 수백 ms 가 부풀 수
-있다. 게다가 어댑터는 이미 측정한 오차를 보정해서 서명하므로 요청은 멀쩡히 나간다.
+`check_clock` was unconditionally critical whenever |skew| > 1000 ms. But the 1302 ms was measured 3 seconds after the network
+came back. When a MacBook wakes from sleep, its clock is commonly off by 1–2 seconds until NTP corrects it again, and the
+measurement itself can be inflated by a few hundred ms on freshly connected Wi-Fi with asymmetric round-trip latency. On top of
+that, the adapter already corrects for the measured offset when signing, so requests go out fine.
 
-즉 **09-05 와 같은 모양의 실수**다: 몇 분 뒤 저절로 풀리는 조건을 사람이 풀어야 하는 상태로
-만들었다.
+In other words, **the same shape of mistake as 09-05**: a condition that clears by itself within minutes was turned into a state
+that a human has to release.
 
-수정:
+Fix:
 
-| # | 수정 | 파일 |
+| # | Fix | File |
 |---|---|---|
-| 1 | 가드를 2단으로 — 1000 ms 초과는 **차단**(critical=False), `critical_clock_skew_ms`(60초) 초과만 즉시 래치 | `risk/guards.py`, `config/schema.py` |
-| 2 | 차단은 스테일 데이터와 같은 규칙 — 슬롯당 알림 1건(`clock_skew_blocked`), `clock_skew_cycles_to_safe_hold`(3) 슬롯 연속이면 래치. 카운터는 DB(`clock_skew_cycles`) | `runtime/trader.py` |
-| 3 | `CLOCK_SKEW` 만으로 막힌 판단은 10분 뒤 재시도 대상 (`TRANSIENT_BLOCK_CODES`) | 〃 |
-| 4 | 시계 측정을 3회 왕복 중 **가장 짧은 왕복**의 중간점으로 — 비대칭 지연 부풀림 완화 | `exchange/binance_coinm.py` |
+| 1 | Make the guard 2-tier — over 1000 ms **blocks** (critical=False); only over `critical_clock_skew_ms` (60 s) latches immediately | `risk/guards.py`, `config/schema.py` |
+| 2 | Blocking follows the same rules as stale data — 1 alert per slot (`clock_skew_blocked`), latch after `clock_skew_cycles_to_safe_hold` (3) consecutive slots. Counter in the DB (`clock_skew_cycles`) | `runtime/trader.py` |
+| 3 | A decision blocked by `CLOCK_SKEW` alone is eligible for a retry 10 minutes later (`TRANSIENT_BLOCK_CODES`) | 〃 |
+| 4 | Clock measurement takes the midpoint of the **shortest round trip** out of 3 — mitigates inflation from asymmetric latency | `exchange/binance_coinm.py` |
 
-09-30 순서를 그대로 돌리면 이제: 00:44 재시도 → 1302 ms → 차단 + WARNING 1건 → 00:54 재시도 →
-(NTP 가 맞춘 뒤) 판단. 회귀 테스트 4건(`tests/simulation/test_clock_skew.py`, 수정 전 코드에서 3건 실패).
+Replaying the 09-30 sequence now gives: 00:44 retry → 1302 ms → block + 1 WARNING → 00:54 retry → (after NTP has corrected the
+clock) decision. 4 regression tests (`tests/simulation/test_clock_skew.py`; 3 of them failed on the pre-fix code).
 
-## 3. 원인 ② — 만료된 listenKey 를 붙들고 이틀
+## 3. Cause ② — two days hanging on to an expired listenKey
 
-유저 스트림은 listenKey 를 캐시하고, 30분마다 `PUT` keepalive 를 보내고, `listenKeyExpired`
-**이벤트가 오면** 새 키를 받도록 돼 있었다. 그런데 키는 60분 keepalive 가 없으면 서버에서 죽고
-(공식 문서), 맥북이 60분 넘게 자면 정확히 그 일이 일어난다. 깨어난 뒤:
+The user stream was built to cache the listenKey, send a `PUT` keepalive every 30 minutes, and get a new key
+**when a `listenKeyExpired` event arrived**. But the key dies on the server after 60 minutes without a keepalive (official
+docs), and that is exactly what happens when the MacBook sleeps for more than 60 minutes. After waking:
 
-* `PUT` → `-1125` (키 없음). 코드는 오류만 기록하고 **키를 그대로 둔 채** 다음 recv 타임아웃(5초)
-  마다 같은 `PUT` 을 다시 보냈다. `listenKeyExpired` 이벤트는 죽은 소켓으로는 오지 않는다.
-* 정지 감지가 재연결을 시켜도 `_url()` 이 캐시된 키를 재사용했으므로 죽은 키로 다시 붙었다.
+* `PUT` → `-1125` (key does not exist). The code only logged the error and, **leaving the key as it was**, sent the same `PUT`
+  again at every subsequent recv timeout (5 s). A `listenKeyExpired` event does not arrive over a dead socket.
+* Even when stall detection forced a reconnect, `_url()` reused the cached key, so it reconnected with the dead key.
 
-결과: 09-28 01:47 부터 유저 스트림이 사실상 없었다. 일일 판단은 REST 가 1차 소스라 영향이 없었고
-(포지션 교차검증은 재연결 시 스냅샷을 버리므로 오탐도 없었다), 대신 로그 3만 줄과 "살아 있다고
-표시되는 죽은 스트림" 이 남았다. live 였다면 체결·계좌 이벤트를 이틀간 못 들었을 것이다.
+Result: from 09-28 01:47 there was effectively no user stream. The daily decision was unaffected because REST is its primary
+source (and the position cross-check discards the snapshot on reconnect, so there were no false alarms either); what was left
+instead was 30,000 log lines and "a dead stream displayed as alive". In live, fill and account events would have gone unheard
+for two days.
 
-수정 (`exchange/binance_ws.py`, 공식 문서 §6.1 에 근거):
+Fix (`exchange/binance_ws.py`, based on official docs §6.1):
 
-| # | 수정 | 근거 (문서 원문) |
+| # | Fix | Basis (verbatim doc text) |
 |---|---|---|
-| 1 | **연결할 때마다 `POST /dapi/v1/listenKey`** | "Doing a POST on an account with an active listenKey will return the currently active listenKey and extend its validity for 60 minutes" — 살아 있으면 같은 키(연장), 죽었으면 새 키. 재연결마다 weight 1 |
-| 2 | keepalive 가 `ExchangeAPIError`(-1125 등)로 거부되면 만료로 표시하고 재연결 → 새 키 | 거부된 키는 keepalive 로 살릴 수 없다 |
-| 3 | keepalive 가 네트워크 오류로 실패하면 5초가 아니라 **60초 뒤** 재시도 | 오류 폭주 방지 |
+| 1 | **`POST /dapi/v1/listenKey` on every connect** | "Doing a POST on an account with an active listenKey will return the currently active listenKey and extend its validity for 60 minutes" — if the key is alive, the same key (extended); if dead, a new key. Weight 1 per reconnect |
+| 2 | If the keepalive is rejected with `ExchangeAPIError` (-1125 etc.), mark the key expired and reconnect → new key | A rejected key cannot be revived by a keepalive |
+| 3 | If the keepalive fails with a network error, retry **after 60 s** instead of 5 s | Prevents error floods |
 
-회귀 테스트 2건(`tests/integration/test_websocket_streams.py`): 거부되는 keepalive → 새 키 요청·
-반복 없음, 재연결마다 POST. 수정 전 코드에서 둘 다 실패 확인.
+2 regression tests (`tests/integration/test_websocket_streams.py`): rejected keepalive → new key requested and no repetition;
+POST on every reconnect. Both confirmed failing on the pre-fix code.
 
-## 4. 복구
+## 4. Recovery
 
-번들 적용(두 에이전트 재시작) 뒤 testnet SAFE_HOLD 를 사람이 `--ack` 로 해제. 원장은 건드릴
-것이 없다 — 이번엔 대사가 아니라 가드가 걸린 것이라 지갑은 일치한다. 재시작하면 유저 스트림이
-새 키를 받는다.
+After applying the bundle (restarting both agents), a human released the testnet SAFE_HOLD with `--ack`. Nothing in the ledger
+needs touching — this time a guard tripped, not reconciliation, so the wallet matches. On restart the user stream gets a new key.
 
-## 5. 부수 확인
+## 5. Incidental confirmations
 
-* **판단 재시도 경로(09-05 문서 §9) 현장 검증 완료** — 09-29·09-30 이틀, 두 에이전트 모두.
-* 09-29 하루 동안 testnet 에서 정지 감지 재연결 60여 회. 맥북이 덮개 개폐를 반복하는 하루였고,
-  감시자 재시작은 0건. 09-14 수정이 부하 아래서도 유지된다.
-* 데모 계좌의 `GET /dapi/v1/time` 도 기상 직후에는 `ConnectError` — 재시도 경로가 없었으면 이틀치
-  판단이 사라졌을 것이다.
+* **Field verification of the decision retry path (09-05 doc §9) done** — on both days (09-29·09-30) and for both agents.
+* testnet made 60-odd stall-detection reconnects over the day of 09-29 alone. It was a day of the MacBook's lid being opened and
+  closed over and over, and there were 0 supervisor restarts. The 09-14 fix holds up under load.
+* The demo account's `GET /dapi/v1/time` also returned `ConnectError` right after wake — without the retry path, two days'
+  decisions would have been lost.
 
-## 6. 교훈
+## 6. Lessons
 
-두 건 다 **"이벤트가 오면 처리한다"** 는 가정이 깨진 경우다. 시계는 NTP 가 알아서 맞추겠지,
-키는 만료 이벤트가 오겠지 — 그런데 절전에서 깨는 맥북은 그 이벤트들이 도착하기 *전의* 상태를
-먼저 보여준다. 회복 가능한 조건은 (1) 차단하고 (2) 다시 시도하고 (3) 오래 지속될 때만 래치한다는
-규칙을, 스트림(09-05)·판단(09-14)·시계(09-30) 세 번째로 적용했다. 앞으로 critical 가드를 새로
-넣을 때 먼저 물을 것: "이 조건은 10분 뒤에도 그대로인가?"
+Both are cases where the assumption **"we handle it when the event arrives"** broke. NTP will surely fix the clock on its own;
+an expiry event will surely come for the key — but a MacBook waking from sleep first shows the state from *before* those events
+arrive.
+The rule that a recoverable condition is (1) blocked, (2) retried and (3) latched only if it persists for a long time has now been
+applied for the third time: streams (09-05), decisions (09-14), clock (09-30). From now on, when adding a new critical guard, ask
+first: "Will this condition still be the same 10 minutes from now?"
 
-## 7. 후속 — 그 SAFE_HOLD 사이클이 남긴 원장/지갑 분리 (2026-10-10 발견)
+## 7. Follow-up — the ledger/wallet split left behind by that SAFE_HOLD cycle (found 2026-10-10)
 
-10-10 점검에서 testnet 의 **원장 합 0.01001038 BTC ≠ 저장된 지갑 0.01001005 BTC** (차이
-0.00000033). 대사는 매일 OK 였다 — 차이가 허용오차(0.00001)의 30분의 1이라 보이지 않았다.
+At the 10-10 check, testnet showed **ledger sum 0.01001038 BTC ≠ saved wallet 0.01001005 BTC** (difference
+0.00000033). Reconciliation had been OK every day — the difference was 1/30 of the tolerance (0.00001), so it did not show.
 
-추적 (DB 의 스냅샷과 원장 행으로 재구성):
+Trace (reconstructed from the DB snapshots and ledger rows):
 
-| 시각 (UTC) | 지갑(저장) | 원장 합 | 사건 |
+| Time (UTC) | Wallet (saved) | Ledger sum | Event |
 |---|---|---|---|
-| 09-29 00:53 | 0.01000809 | 0.01000809 | 정상 사이클, 저장 |
-| 09-30 00:44 | 0.01000809 | **0.01000842** | 위 §2 의 사이클: 펀딩 3건(1.1e-7, 1.2e-7, 1.0e-7)을 원장 DB 에 쓰고 메모리 지갑에 더한 **뒤** 시계 가드로 SAFE_HOLD → 사이클 끝의 저장에 도달하지 못함 |
-| 09-30 01:19 | 0.01000809 | 0.01000842 | 수정 배포로 재시작. 지갑은 마지막 저장값으로 복원. 시작 시 income sync 는 그 3건을 "원장에 이미 있음"으로 건너뜀 → **영구 분리** |
-| 10-01 이후 | 원장보다 0.00000033 적은 채로 매일 정상 진행 | | |
+| 09-29 00:53 | 0.01000809 | 0.01000809 | Normal cycle, saved |
+| 09-30 00:44 | 0.01000809 | **0.01000842** | The cycle from §2 above: wrote 3 funding settlements (1.1e-7, 1.2e-7, 1.0e-7) to the ledger DB and added them to the in-memory wallet, **then** SAFE_HOLD from the clock guard → never reached the end-of-cycle save |
+| 09-30 01:19 | 0.01000809 | 0.01000842 | Restart for the fix deploy. Wallet restored to the last saved value. At startup, income sync skipped those 3 as "already in the ledger" → **permanent split** |
+| From 10-01 | 0.00000033 below the ledger, carrying on normally every day | | |
 
-이건 시계 버그가 아니라 **저장 시점** 버그다. 사이클은 원장 행을 즉시(지속적으로) 쓰지만 지갑은
-사이클이 *성공적으로 끝날 때만* 저장했다. 그 사이의 모든 조기 반환 — SAFE_HOLD, 대사 불일치,
-"이미 판단한 캔들" — 뒤에 재시작이 오면 같은 일이 난다. 시뮬레이션으로 같은 순서를 1 BTC 계좌에서
-돌리면 사라지는 펀딩이 0.000113 BTC 로 허용오차를 넘어 **재시작 직후 대사 불일치로 다시 SAFE_HOLD**
-가 걸린다. 즉 실계좌에서는 "SAFE_HOLD 해제 → 재시작 → 즉시 SAFE_HOLD" 로 나타났을 것이다.
+This is not a clock bug but a **save-timing** bug. The cycle writes ledger rows immediately (durably), but saved the wallet
+*only when the cycle finished successfully*. Any early return in between — SAFE_HOLD, a reconciliation mismatch, "candle
+already decided" — followed by a restart does the same thing. Run the same sequence in simulation on a 1 BTC account and the
+funding that vanishes is 0.000113 BTC, which exceeds the tolerance, so **SAFE_HOLD engages again right after the restart, on a
+reconciliation mismatch**. In other words, on a real account it would have shown up as "release SAFE_HOLD → restart → immediate
+SAFE_HOLD".
 
-수정:
+Fix:
 
-| # | 수정 | 파일 |
+| # | Fix | File |
 |---|---|---|
-| 1 | income 을 원장에 반영한 **직후** 지갑(과 페이퍼 계좌)을 저장 — 사이클과 시작 모두 | `runtime/trader.py` |
-| 2 | 원장 행을 **먼저** 쓰고 그다음 메모리 지갑을 움직임 — 쓰기 실패 시 지갑이 원장에 없는 돈을 세지 않도록 | `execution/reconciliation.py` |
-| 3 | 시작할 때 저장된 지갑을 **원장 합(가장 최근 OPENING_BALANCE 부터)** 과 대조, 다르면 원장 값으로 재구성하고 WARNING `ledger_wallet_repaired` 알림 + 시작 보고서에 기록. 판정은 그 뒤의 거래소 대사가 그대로 한다 | `runtime/trader.py`, `storage/database.py` |
+| 1 | Save the wallet (and the paper account) **right after** applying income to the ledger — both in the cycle and at startup | `runtime/trader.py` |
+| 2 | Write the ledger row **first**, then move the in-memory wallet — so that if the write fails, the wallet does not count money that is not in the ledger | `execution/reconciliation.py` |
+| 3 | At startup, check the saved wallet against the **ledger sum (from the most recent OPENING_BALANCE)**; if they differ, rebuild it from the ledger value, send a WARNING `ledger_wallet_repaired` alert and record it in the startup report. The verdict is still left to the exchange reconciliation that follows | `runtime/trader.py`, `storage/database.py` |
 
-지갑은 원장의 캐시이고 원장은 거래소 이벤트 1건당 1행(거래소 id 로 중복 제거)인 기록이므로, 둘이
-어긋나면 캐시를 다시 만든다. 단 조용히는 아니다. 허용오차 1e-12 BTC — 실데이터에서 3주간 쌓인
-Decimal 합산 순서 잡음이 2e-27 이고, 빠진 행은 최소 1e-8 이다.
+The wallet is a cache of the ledger, and the ledger is a 1:1 record of exchange events (deduplicated by exchange id), so when the
+two diverge, the cache is rebuilt. But not silently. Tolerance 1e-12 BTC — on real data, the Decimal summation-order noise
+accumulated over 3 weeks is 2e-27; a missing row is 1e-8 at minimum.
 
-회귀 테스트 4건(`tests/simulation/test_ledger_wallet_consistency.py`): 래치된 사이클 + 재시작
-(09-30 순서 그대로), 저장값이 뒤처진 채 시작 → 재구성 + 알림, 재채택으로 OPENING_BALANCE 가 둘일
-때 이중 계산하지 않음, 원장 쓰기 실패 시 지갑 불변. 수정 전 코드에서 3건 실패 확인(재채택 테스트는
-새 로직의 오작동을 막는 용도). 실제 DB 사본에 새 로직을 돌린 결과: shadow 차이 2e-27(정상), testnet
-3.3e-7 → 재구성 대상.
+4 regression tests (`tests/simulation/test_ledger_wallet_consistency.py`): latched cycle + restart (the 09-30 sequence exactly),
+startup with a lagging saved value → rebuild + alert, no double counting when re-adoption leaves two OPENING_BALANCEs, wallet
+unchanged when the ledger write fails. 3 confirmed failing on the pre-fix code (the re-adoption test is there to keep the new
+logic from misbehaving). Result of running the new logic on copies of the real DBs: shadow difference 2e-27 (normal), testnet
+3.3e-7 → to be rebuilt.
 
-교훈: §6 의 질문에 하나를 더한다 — **"이 경로가 중간에 끝나면, 지속된 것과 메모리에만 있는 것이
-갈라지는가?"** 조기 반환을 만들 때마다 물어야 했다.
+Lesson: one more question to add to the one in §6 — **"If this path ends partway, do what has been persisted and what exists
+only in memory diverge?"** It should have been asked every time an early return was added.
 
-## 8. 후속 2 — 00:05 의 "2초" (2026-10-14)
+## 8. Follow-up 2 — the "2 seconds" at 00:05 (2026-10-14)
 
-10-04·10-12·10-14 세 번, testnet 의 00:05:00 판단에서 `clock_skew_blocked` WARNING(1/3). §2 의
-2단 가드는 의도대로 차단만 했고 이튿날 카운터를 0 으로 되돌렸다. 세 번 모두 거래할 것이 없는
-날(`below min_rebalance_diff`)이라 실제로 막힌 주문은 없다. 그래도 둘 수 없는 이유: 사흘 연속이면
-래치 규칙대로 SAFE_HOLD 인데, 그게 **우리 시계 탓이 아닐 수 있다.**
+Three times (10-04·10-12·10-14), testnet's 00:05:00 decision raised a `clock_skew_blocked` WARNING (1/3). The 2-tier guard from
+§2 only blocked, as intended, and reset the counter to 0 the next day. All three were days with nothing to trade
+(`below min_rebalance_diff`), so no order was actually blocked. Why it still cannot be left alone: three days in a row means
+SAFE_HOLD under the latch rule, and that may **not be our clock's fault.**
 
-| 날짜 (UTC) | 데모 `/time` 기준 오차 | 조건 |
+| Date (UTC) | Offset vs demo `/time` | Conditions |
 |---|---|---|
-| 10-04 00:05:00 | +2025 ms | 정시 실행(깨어 있음), 직전 1시간 기상·재연결 로그 없음 |
+| 10-04 00:05:00 | +2025 ms | Ran on schedule (awake); no wake or reconnect log in the preceding 1 hour |
 | 10-12 00:05:00 | +2066 ms | 〃 |
-| 10-14 00:05:00 | +2048 ms | 〃. 사이클 시작→알림 기록 270 ms(왕복 3회 포함 → 최단 왕복 ≤ 90 ms) |
-| 10-02~10-14 의 나머지 10일 | 1000 ms 이내(값은 기록 안 됨) | 같은 시각 |
-| 재시작 시 측정 6회 (09-30~10-12) | 7~88 ms | 여러 시각 |
+| 10-14 00:05:00 | +2048 ms | 〃. Cycle start → alert logged: 270 ms (including 3 round trips → shortest round trip ≤ 90 ms) |
+| The other 10 days of 10-02 to 10-14 | Within 1000 ms (values not recorded) | Same time of day |
+| 6 measurements at restarts (09-30 to 10-12) | 7–88 ms | Various times |
 
-§2 와 다른 점: 09-30 은 **기상 3초 뒤**였고 몇 분 뒤 사라졌다. 이번엔 맥북이 깨어 있었고, 측정
-잡음(최단 왕복의 절반 ≤ 45 ms)으로는 2초를 만들 수 없다. 즉 그 순간 데모 호스트 시계가 2초 앞섰거나
-맥북 시계가 2초 뒤처졌다. **어느 쪽인지는 아직 모른다** — 데모 오프셋 하나만 쟀으니 구별할 수 없었다.
+How this differs from §2: 09-30 was **3 seconds after a wake** and went away within minutes. This time the MacBook was awake,
+and measurement noise (half the shortest round trip, ≤ 45 ms) cannot produce 2 seconds. So at that moment either the demo host's
+clock was 2 seconds ahead or the MacBook's clock was 2 seconds behind. **Which one is not yet known** — with only the demo offset
+measured, the two could not be told apart.
 
-질문을 다시 세우면: 시계 가드가 묻는 것은 "**우리 시계가 맞는가**"(캔들 경계·판단 시각)이고,
-"거래소와 몇 ms 차이 나는가"는 서명용으로 어댑터가 이미 보정한다. live 에서는 둘이 같은
-질문이지만(거래소 = 프로덕션), testnet 에서는 데모 호스트가 기준 시계 노릇을 하고 있었다.
+Restating the question: what the clock guard asks is "**is our clock right**" (candle boundaries, decision time); "how many ms
+are we off from the exchange" is something the adapter already corrects for signing. In live the two are the same question
+(exchange = production), but on testnet the demo host had been acting as the reference clock.
 
-수정:
+Fix:
 
-| # | 수정 | 파일 |
+| # | Fix | File |
 |---|---|---|
-| 1 | 트레이더에 **기준 시계** — 가드는 이것과의 오차로 판정. testnet: 프로덕션 공개 `/time`(키 없음, 재시도 1회, 타임아웃 5초). shadow: 이미 가격을 읽는 프로덕션 어댑터 재사용 — **shadow 도 처음으로 시계 가드를 실제로 거친다**(페이퍼 계좌엔 시계가 없어 늘 0 이었다). live: 없음(거래소가 곧 프로덕션) — 동작 불변 | `runtime/trader.py`, `runtime/app.py` |
-| 2 | 기준 시계에 닿지 못하면 경고 로그 후 **거래소 오프셋으로 판정**(이전 동작). 두 번째 의견이 새 실패 경로가 되면 안 된다 | `runtime/trader.py` |
-| 3 | 매 사이클 `clock check` 로그: 거래소 오프셋·왕복, 기준 오프셋·왕복. 둘이 `max_clock_skew_ms` 넘게 어긋나면 WARNING `exchange clock disagrees with the reference` | 〃, `exchange/binance_coinm.py`(`time_sync_rtt_ms`) |
-| 4 | 시작 보고서(`system_start`)에 `reference_clock_offset_ms` | `runtime/trader.py` |
+| 1 | A **reference clock** for the trader — the guard reaches its verdict on the offset from it. testnet: production public `/time` (no key, 1 retry, 5 s timeout). shadow: reuses the production adapter it already reads prices from — **shadow, too, goes through the clock guard for real for the first time** (the paper account has no clock, so it was always 0). live: none (the exchange is production) — behaviour unchanged | `runtime/trader.py`, `runtime/app.py` |
+| 2 | If the reference clock cannot be reached, log a warning and **reach the verdict on the exchange offset** (previous behaviour). A second opinion must not become a new failure path | `runtime/trader.py` |
+| 3 | A `clock check` log every cycle: exchange offset and round trip, reference offset and round trip. If the two disagree by more than `max_clock_skew_ms`, WARNING `exchange clock disagrees with the reference` | 〃, `exchange/binance_coinm.py` (`time_sync_rtt_ms`) |
+| 4 | `reference_clock_offset_ms` in the startup report (`system_start`) | `runtime/trader.py` |
 
-서명은 그대로 데모 오프셋으로 한다 — 데모가 2초 앞서 있어도 요청 타임스탬프는 데모 시계에 맞는다.
+Signing still uses the demo offset — even if the demo is 2 seconds ahead, the request timestamps match the demo clock.
 
-다음 00:05 부터 판정할 수 있는 것:
+From the next 00:05 onward, the verdict can be read as follows:
 
-* `exchange_offset_ms ≈ +2000`, `reference_offset_ms ≈ 0` → **데모 호스트 쪽**. 가드 통과(옳다),
-  경고 로그만 남는다. `exchange_api_verification.md` §20 을 확인됨으로 갱신.
-* 둘 다 ≈ +2000 → **맥북 시계 쪽**. 가드는 계속 차단하고(옳다 — live 였어도 막아야 한다) shadow 도
-  같은 날 차단된다. 그때는 macOS 시간 동기화를 들여다볼 일이다.
+* `exchange_offset_ms ≈ +2000`, `reference_offset_ms ≈ 0` → **the demo host's side**. The guard passes (correctly), and only a
+  warning log is left. Update `exchange_api_verification.md` §20 to confirmed.
+* Both ≈ +2000 → **the MacBook clock's side**. The guard keeps blocking (correctly — it would have to block in live too), and
+  shadow is blocked on the same day as well. In that case, macOS time sync is what needs looking into.
 
-테스트 9건: 데모만 +2048·프로덕션 +12 → 사흘 연속이어도 차단·알림 0 / 둘 다 ≈ +2050 → 차단 /
-shadow(오프셋 0) + 기준 −1302 → 차단 / 기준 불통 → 거래소로 판정(이전과 동일) / 어댑터가 최단 왕복을
-기억 / 배선 4건(live=없음, testnet=키 없는 프로덕션·재시도 ≤ 1, shadow=기존 어댑터 재사용,
-리플레이=없음). 가드가 기준을 무시하도록 되돌리면 3건이 실패함을 확인했다.
+9 tests: demo alone +2048 · production +12 → even three days in a row, blocks/alerts: 0 / both ≈ +2050 → block / shadow
+(offset 0) + reference −1302 → block / reference unreachable → verdict on the exchange (same as before) / the adapter remembers
+the shortest round trip / wiring, 4 tests (live=none, testnet=keyless production·retries ≤ 1, shadow=reuse of the existing
+adapter, replay=none). Confirmed that reverting the guard to ignore the reference makes 3 of them fail.
 
-알아둘 부작용: shadow 가 이제 실제 시계로 판정되므로, 기상 직후처럼 맥북 시계가 1초 넘게 어긋난
-아침엔 shadow 에도 `clock_skew_blocked` 가 올 수 있다. live 가 같은 아침에 겪을 일이므로 의도된
-변화다.
+A side effect to be aware of: since shadow is now judged against a real clock, on mornings when the MacBook's clock is off by
+more than 1 second, as right after a wake, shadow can also get `clock_skew_blocked`. This is what live would go through on the
+same morning, so it is an intended change.
 
-**판정 (2026-10-16 00:05)**: 같은 사이클에서 testnet 은 데모 +2126 ms(왕복 49 ms)·프로덕션 +2125 ms(왕복
-48 ms), shadow 는 프로덕션 +2125 ms(왕복 48 ms). 두 서버가 1 ms 안에서 일치한다 — **맥북 시계가 2.1초
-늦었던 것이고 데모 호스트 문제가 아니었다.** 가드는 두 에이전트 모두 의도대로 차단했고(1/3, shadow 의
-첫 `clock_skew_blocked`) 이튿날 +56 ms 로 풀렸다. 거래할 것이 없던 날이라 영향 0. 정시 판단 17일 중
-4일(10-04·12·14·16), 연속은 없었다. 다른 날은 4~88 ms.
+**Verdict (2026-10-16 00:05)**: in the same cycle, testnet saw demo +2126 ms (round trip 49 ms) · production +2125 ms (round trip
+48 ms), and shadow saw production +2125 ms (round trip 48 ms). The two servers agree within 1 ms — **the MacBook's clock was 2.1
+seconds slow; it was not a demo host problem.** The guard blocked on both agents as intended (1/3, shadow's first
+`clock_skew_blocked`) and cleared the next day at +56 ms. It was a day with nothing to trade, so the impact was 0. 4 of the 17
+on-schedule decision days (10-04·12·14·16), none consecutive. Other days: 4–88 ms.
 
-이 2초는 서명(측정한 오프셋으로 보정)에도 일봉 판단(마감 5분 뒤 실행)에도 기능적 영향이 없지만, 사흘
-연속이면 래치된다. 그래서 가드 기준(1000 ms)은 그대로 두고 원인 쪽 — 맥의 자동 시간 동기화 — 을
-먼저 본다. 기준을 넓히는 것은 근거(무엇을 지키는 가드인가)를 따로 세워야 할 결정이고, live 도 같은
-맥에서 돈다면 같은 아침을 겪는다.
+These 2 seconds have no functional effect on signing (corrected with the measured offset) or on the daily-candle decision (run 5
+minutes after the close), but three days in a row would latch. So the guard threshold (1000 ms) is left as it is, and the cause —
+the Mac's automatic time sync — is looked at first. Widening the threshold is a decision that would need its own justification
+(what is the guard protecting?), and if live also runs on the same Mac, it will go through the same mornings.
 

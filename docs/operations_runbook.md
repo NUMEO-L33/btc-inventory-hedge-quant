@@ -1,161 +1,161 @@
-# 운영 Runbook
+# Operations runbook
 
-## 0. 사전 준비
+## 0. Prerequisites
 
 ```bash
-bash scripts/setup_macos.sh                                   # macOS: Python 3.12 확인 → venv → 설치 → 데이터 검증 → 테스트
+bash scripts/setup_macos.sh                                   # macOS: check Python 3.12 → venv → install → verify data → tests
 source .venv/bin/activate
-# 수동(모든 OS): python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
-cp .env.example .env                                          # 키 입력, 절대 커밋 금지 (setup 스크립트가 자동 생성)
-python -m btc_inventory_quant data verify                     # 원본 데이터 체크섬
-python -m pytest -q                                           # 119 테스트
+# Manual (any OS): python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
+cp .env.example .env                                          # enter keys, never commit (the setup script creates it automatically)
+python -m btc_inventory_quant data verify                     # raw data checksums
+python -m pytest -q                                           # 119 tests
 ```
-macOS 상시 실행: `scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist` (파일 상단 설치 절차) → `launchctl load` 후 `tail -f state/shadow.log`.
+Always-on operation on macOS: `scripts/launchd/com.numeo.btc-inventory-quant.shadow.plist` (installation steps at the top of the file) → `launchctl load`, then `tail -f state/shadow.log`.
 
-## 1. 백테스트
+## 1. Backtest
 
 ```bash
 python -m btc_inventory_quant backtest --config configs/backtest.yaml
 python -m btc_inventory_quant research --config configs/backtest.yaml walk-forward
 python -m btc_inventory_quant research --config configs/backtest.yaml sensitivity
 ```
-결과: `reports/<run_id>/backtest_report.md`, `summary.json`, CSV, `charts/`.
+Output: `reports/<run_id>/backtest_report.md`, `summary.json`, CSV, `charts/`.
 
-데이터 갱신(Binance 접속 가능한 머신에서):
+Data refresh (on a machine that can reach Binance):
 ```bash
-python -m btc_inventory_quant data --raw-dir data/raw download          # 전체 재수집 + manifest(sha256)
-python -m btc_inventory_quant data --raw-dir data/raw download --include-8h-mark   # 펀딩 시각 마크가격 정밀화(선택, docs/backtest_methodology.md §6-2)
+python -m btc_inventory_quant data --raw-dir data/raw download          # full re-download + manifest(sha256)
+python -m btc_inventory_quant data --raw-dir data/raw download --include-8h-mark   # more precise mark prices at funding times (optional, docs/backtest_methodology.md §6-2)
 ```
 
-## 2. Shadow (실데이터 + 가상계좌, 실주문 불가)
+## 2. Shadow (real data + simulated account, real orders impossible)
 
 ```bash
-python -m btc_inventory_quant shadow --config configs/shadow.yaml            # 매일 00:05 UTC 판단, 상시 실행
-python -m btc_inventory_quant shadow --config configs/shadow.yaml --once     # 1회 사이클
+python -m btc_inventory_quant shadow --config configs/shadow.yaml            # decision daily at 00:05 UTC, runs continuously
+python -m btc_inventory_quant shadow --config configs/shadow.yaml --once     # run 1 cycle
 python -m btc_inventory_quant status --config configs/shadow.yaml
 ```
-상시 실행(macOS, 권장) — 로그인 시 자동 시작하고 죽으면 재시작한다:
+Always-on operation (macOS, recommended) — starts automatically at login and restarts if it dies:
 ```bash
-bash scripts/install_shadow_agent.sh              # 설치 + 시작 (설정 사전 점검 포함)
-tail -f state/shadow.log                          # 로그
-bash scripts/install_shadow_agent.sh --uninstall  # 중지
+bash scripts/install_shadow_agent.sh              # install + start (includes a config pre-check)
+tail -f state/shadow.log                          # log
+bash scripts/install_shadow_agent.sh --uninstall  # stop
 ```
-Shadow 는 **API 키가 필요 없다** — 실시간 공개 시세를 읽고 계좌는 시뮬레이션이므로 실주문이 구조적으로 불가능하다.
+Shadow **needs no API key** — it reads real-time public market data and the account is simulated, so real orders are structurally impossible.
 
-알림을 기계 밖으로 내보낸다(권장). `.env` 에:
+Send alerts off the machine (recommended). In `.env`:
 ```
 BIQ_TELEGRAM_BOT_TOKEN=...      # @BotFather → /newbot
-BIQ_TELEGRAM_CHAT_ID=...        # 봇에게 아무 메시지나 보낸 뒤 getUpdates 의 chat.id
+BIQ_TELEGRAM_CHAT_ID=...        # send the bot any message, then take chat.id from getUpdates
 ```
-`configs/shadow.yaml` 은 이미 `alert_channels: [log, telegram]` 이다. 자격증명이 없으면 경고만
-남기고 로그 채널로 계속 돈다 — 설치 스크립트가 사전 점검에서 이를 알려준다.
+`configs/shadow.yaml` already has `alert_channels: [log, telegram]`. Without credentials it only logs a
+warning and keeps running on the log channel — the install script points this out in its pre-check.
 
-**주간 점검 항목** (`status --config configs/shadow.yaml`):
+**Weekly check items** (`status --config configs/shadow.yaml`):
 
-| 필드 | 정상 | 이상하면 |
+| Field | Normal | If abnormal |
 |---|---|---|
-| `system_state` | `NORMAL` | `SAFE_HOLD` 면 `safe_hold_reason` 확인 |
-| `latest_decision.ts` | 최근 24시간 이내 | 오래됐으면 데몬이 멈춘 것 — `state/shadow.log` |
-| `latest_reconciliation.ok` | `true` | 내부 원장과 페이퍼 계좌 불일치 |
-| `unresolved_orders` | `[]` | 미확인 주문 잔존 |
-| `websocket_connected` | `true` | **이 값만으로는 판단하지 말 것** — 죽은 소켓도 `true` 를 보고한다([인시던트](incident_2026-09-05_stream_silence.md)). 로그의 `forcing stream reconnect` 빈도를 함께 본다 |
-| `recent_events` | ERROR 없음 | 재연결·시세 지연 반복 여부 |
+| `system_state` | `NORMAL` | If `SAFE_HOLD`, check `safe_hold_reason` |
+| `latest_decision.ts` | Within the last 24 hours | If stale, the daemon has stopped — `state/shadow.log` |
+| `latest_reconciliation.ok` | `true` | Internal ledger and paper account disagree |
+| `unresolved_orders` | `[]` | Unconfirmed orders remain |
+| `websocket_connected` | `true` | **Do not judge by this value alone** — a dead socket also reports `true` ([incident](incident_2026-09-05_stream_silence.md)). Also check how often `forcing stream reconnect` appears in the log |
+| `recent_events` | No ERROR | Whether reconnects or market-data delays keep recurring |
 
-**스테일 데이터는 더 이상 SAFE_HOLD 를 즉시 걸지 않는다.** 스트림이 조용하면 그 사이클의 주문만
-막고(`action: blocked`), 스트림은 스스로 재연결한다. `risk.stale_data_cycles_to_safe_hold`(기본 3)
-연속 사이클 동안 회복하지 못하면 그때 래치한다. 배경은 [인시던트
+**Stale data no longer triggers SAFE_HOLD immediately.** If the stream goes quiet, only that cycle's orders are
+blocked (`action: blocked`), and the stream reconnects on its own. Only if it fails to recover for `risk.stale_data_cycles_to_safe_hold` (default 3)
+consecutive cycles does it latch. Background: [incident
 2026-09-05](incident_2026-09-05_stream_silence.md).
 
-SAFE_HOLD 가 걸렸다면 원인을 먼저 확인하고, 해소된 뒤에 해제한다:
+If SAFE_HOLD has been triggered, identify the cause first and release it only after the cause has been resolved:
 ```bash
 python -m btc_inventory_quant status --config configs/shadow.yaml    # safe_hold_reason
 python -m btc_inventory_quant safe-hold --config configs/shadow.yaml \
     --release --ack I_ACCEPT_COIN_M_TRADING_RISK
 ```
 
-에이전트는 `caffeinate -s` 로 파이썬을 감싸 실행한다. 절전되면 그날의 판단이 덮개를 여는 시각에
-실행되어 백테스트 가정(00:05 UTC 체결)이 깨지기 때문이다. 확인:
+The agent runs Python wrapped in `caffeinate -s`. This is because if the machine sleeps, that day's decision runs when the lid is
+opened, breaking the backtest assumption (fill at 00:05 UTC). To check:
 
 ```bash
-ps aux | grep "[c]affeinate"                        # caffeinate -s ... shadow 가 보여야 한다
+ps aux | grep "[c]affeinate"                        # caffeinate -s ... shadow should be listed
 pmset -g assertions | grep -i -A1 PreventSystemSleep
 ```
 
-`-s` 는 `PreventSystemSleep` 어서션을 만든다 — `PreventUserIdleSystemSleep` 이 아니다. 후자로
-grep 하면 macOS 자체의 "화면 켜져 있을 때" 어서션(powerd)만 보이고 우리 것은 안 보인다.
+`-s` creates a `PreventSystemSleep` assertion — not `PreventUserIdleSystemSleep`. If you grep for the latter,
+you see only macOS's own "while display is on" assertion (powerd), not ours.
 
-**이것이 막아주지 못하는 것**: `-s` 는 **전원 연결 중에만** 유효하고(배터리에서는 macOS 가 무시),
-**덮개를 닫으면 그래도 잠든다**. 즉 절전 자체를 없앨 수는 없다. 덮개를 닫는 경우는 스트림의 정지
-감지가 처리한다 — 깨어난 뒤 강제 재연결하고, 스테일 판정은 래치하지 않는다. 판단 시각(00:05 UTC)에
-잠들어 있었다면 판단은 깨어나는 순간 실행되는데, 그때는 보통 Wi-Fi 가 아직 없다. 그래서 거래소
-접속 실패나 스트림 스테일로 끝난 판단은 **`decision_retry_seconds`(600초)마다 다음 판단 시각까지
-재시도**한다. 같은 날의 재시도는 알림 1건·실패 1회로만 센다 — 재시도가 쌓여서 SAFE_HOLD 가 되는
-일은 없다.
+**What this does not prevent**: `-s` takes effect **only while on AC power** (macOS ignores it on battery),
+and **the Mac still sleeps when the lid is closed**. In other words, sleep itself cannot be eliminated. The closed-lid case is handled by the stream's stall
+detection — after waking it forces a reconnect, and a stale verdict does not latch. If the machine was asleep at decision time (00:05 UTC),
+the decision runs the moment it wakes, and at that point there is usually no Wi-Fi yet. So a decision that ended in an exchange
+connection failure or a stale stream is **retried every `decision_retry_seconds` (600 s) until the next decision
+time**. Retries on the same day count as only 1 alert and 1 failure — retries never accumulate
+into a SAFE_HOLD.
 
-**Shadow 가 알려주는 것과 아닌 것**: 20% 정적 헤지의 *성과*는 백테스트로 이미 안다. 여기서 새로 얻는 정보는 **운영 계층**이다 — 데몬이 몇 주간 살아남는가, 재연결이 되는가, 원장이 어긋나지 않는가. 최소 2~4주 관찰 후 다음 단계.
+**What Shadow tells you and what it does not**: the *performance* of the 20% static hedge is already known from the backtest. The new information gained here concerns the **operational layer** — whether the daemon survives for weeks, whether reconnects work, whether the ledger stays in agreement. Observe for at least 2–4 weeks before the next step.
 
-1주차(2026-09-04 ~ 09-11)는 **운영 버그 3건을 잡았고 전략 관찰은 0일**로 끝났다. 기록은
+Week 1 (2026-09-04 ~ 09-11) ended with **3 operational bugs caught and 0 days of strategy observation**. The record is in
 [docs/incident_2026-09-05_stream_silence.md](incident_2026-09-05_stream_silence.md).
-2주차(09-11 ~ 09-20)는 복구 경로의 버그 2건(같은 문서 §7–§9)과 페이퍼 거래소의 id 충돌로
-**SAFE_HOLD 4일**([docs/incident_2026-09-16_paper_income_ids.md](incident_2026-09-16_paper_income_ids.md)).
-관찰 시계는 복구 시점(09-20)부터 다시 센다. 3주차(09-27~30)에 testnet 이 실계좌 경로 버그 3건을 잡았다
-(income 조회, 시계 오차 래치, listenKey 만료 — `incident_2026-09-30_testnet_clock_listenkey.md`); shadow 는 무사고.
+Week 2 (09-11 ~ 09-20) brought 2 bugs in the recovery path (same document, §7–§9) and an id collision in the paper exchange, resulting in
+**4 days of SAFE_HOLD** ([docs/incident_2026-09-16_paper_income_ids.md](incident_2026-09-16_paper_income_ids.md)).
+The observation clock restarts from the recovery point (09-20). In week 3 (09-27~30), testnet caught 3 bugs in the real-account path
+(income query, clock-skew latch, listenKey expiry — `incident_2026-09-30_testnet_clock_listenkey.md`); shadow ran incident-free.
 
-## 3. Testnet(데모)
+## 3. Testnet (demo)
 
-1. Binance Demo Trading 에서 API 키 발급(공식 FAQ 절차; COIN-M 데모 적용 여부는 PARTIAL → 첫 실행 보고서로 확인).
-2. `.env` 에 `BIQ_BINANCE_DEMO_API_KEY/SECRET` 입력.
-3. 계정 설정: One-way 모드, BTCUSD_PERP Cross, 레버리지 1. **API 키는 출금 권한 없음·IP 화이트리스트를 거래소 UI에서 직접 확인**(COIN-M API 로는 출금 권한을 조회할 수 없음).
-4. `python -m btc_inventory_quant testnet --config configs/testnet.yaml --once` → 시작 보고서에서 `contract_spec`, `order_recovery`, `portfolio` 항목 확인.
-5. 상시 실행 후 `reconcile` 로 상태 일치 확인.
-6. **펀딩 공식 검증(최우선)**: 정산 시각(00/08/16 UTC)을 넘긴 뒤 `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml`.
-   `verdict: VERIFIED` 면 `docs/inverse_math.md` §6 PARTIAL 해소. 상세 절차는 **[docs/demo_verification_runbook.md](demo_verification_runbook.md)**.
-7. **상시 운영 (shadow 와 병행)**: `bash scripts/install_agent.sh testnet` — 별도 launchd 에이전트
-   (`com.numeo.btc-inventory-quant.testnet`), 별도 DB(`state/testnet.sqlite3`)·로그(`state/testnet.log`).
-   shadow 가 판단·복구 계층을 검증한다면 testnet 은 **실제 어댑터 경로**를 검증한다 — 서명된 주문,
-   거래소가 매기는 id, 실계좌 유저 스트림, 주문 복구. 09-16 인시던트(페이퍼 거래소의 id 충돌)가 보여준
-   것처럼 모의 거래소는 자기 자신을 검증할 수 없다. 두 에이전트의 Telegram 알림은 `[shadow]`/`[testnet]`
-   접두어로 구분된다. 데모로도 검증되지 않는 것: 프로덕션 수수료 등급·유동성, 실제 펀딩 요율, 프로덕션
-   계좌 설정·키 권한. 데모의 특이점: `fundingRate` 이력 없음, `income` 은 `incomeType` 없이 빈 배열
-   (§18, 2026-09-27 — 이 발견으로 대사 로직이 타입별 조회로 바뀌었다).
-   시계 가드는 데모 호스트가 아니라 **프로덕션 공개 `/time`** 기준으로 판정한다(shadow 도 같다; 데모
-   `/time` 이 00:05 UTC 에 2초 앞서 보인 날이 있었다 — §20). 매 판단의 `clock check` 로그에 두 오프셋이 남는다.
+1. Issue an API key in Binance Demo Trading (official FAQ procedure; whether it applies to the COIN-M demo is PARTIAL → confirm from the first run's report).
+2. Enter `BIQ_BINANCE_DEMO_API_KEY/SECRET` in `.env`.
+3. Account settings: One-way mode, BTCUSD_PERP Cross, leverage 1. **Confirm directly in the exchange UI that the API key has no withdrawal permission and has an IP whitelist** (withdrawal permission cannot be queried through the COIN-M API).
+4. `python -m btc_inventory_quant testnet --config configs/testnet.yaml --once` → check the `contract_spec`, `order_recovery` and `portfolio` items in the startup report.
+5. After starting continuous operation, confirm with `reconcile` that the state agrees.
+6. **Funding formula verification (top priority)**: after a settlement time (00/08/16 UTC) has passed, run `python -m btc_inventory_quant verify-funding --config configs/testnet.yaml`.
+   If `verdict: VERIFIED`, the PARTIAL in `docs/inverse_math.md` §6 is resolved. Detailed procedure: **[docs/demo_verification_runbook.md](demo_verification_runbook.md)**.
+7. **Continuous operation (alongside shadow)**: `bash scripts/install_agent.sh testnet` — a separate launchd agent
+   (`com.numeo.btc-inventory-quant.testnet`) with its own DB (`state/testnet.sqlite3`) and log (`state/testnet.log`).
+   Where shadow verifies the decision and recovery layers, testnet verifies the **real adapter path** — signed orders,
+   exchange-assigned ids, the real-account user stream, order recovery. As the 09-16 incident (id collision in the paper exchange) showed,
+   a simulated exchange cannot verify itself. The two agents' Telegram alerts are distinguished by the `[shadow]`/`[testnet]`
+   prefixes. What even the demo does not verify: production fee tier and liquidity, actual funding rates, production
+   account settings and key permissions. Demo quirks: no `fundingRate` history; `income` returns an empty array without `incomeType`
+   (§18, 2026-09-27 — this finding changed the reconciliation logic to per-type queries).
+   The clock guard bases its verdict on the **production public `/time`**, not the demo host (shadow does the same; there were days when the demo
+   `/time` appeared 2 s ahead at 00:05 UTC — §20). Every decision's `clock check` log records both offsets.
 
-## 4. Live (소액)
+## 4. Live (small size)
 
-1. `configs/live.example.yaml` → `configs/live.yaml`(git 무시) 복사, `live_trading_enabled: true`, `acknowledgement: I_ACCEPT_COIN_M_TRADING_RISK`.
-2. `.env`: `BIQ_ENABLE_LIVE_TRADING=true`, `BIQ_LIVE_ACKNOWLEDGEMENT=I_ACCEPT_COIN_M_TRADING_RISK`, 프로덕션 키(출금 불가, IP 화이트리스트).
-3. 서브계정 자산 ≤ `max_initial_equity_btc`(기본 0.05 BTC).
+1. Copy `configs/live.example.yaml` → `configs/live.yaml` (git-ignored); set `live_trading_enabled: true` and `acknowledgement: I_ACCEPT_COIN_M_TRADING_RISK`.
+2. `.env`: `BIQ_ENABLE_LIVE_TRADING=true`, `BIQ_LIVE_ACKNOWLEDGEMENT=I_ACCEPT_COIN_M_TRADING_RISK`, production keys (no withdrawals, IP whitelist).
+3. Sub-account equity ≤ `max_initial_equity_btc` (default 0.05 BTC).
 4. `python -m btc_inventory_quant live --config configs/live.yaml --confirm-live`
-   * 게이트 실패 시 로그 `LIVE GATE FAILED` 와 실패 항목이 출력되고 읽기 전용으로 동작한다.
-5. 첫 주문 후 `reconcile` 실행, 거래소 UI 와 대조.
+   * If the gate fails, the log prints `LIVE GATE FAILED` and the failed items, and the program runs read-only.
+5. After the first order, run `reconcile` and compare against the exchange UI.
 
-## 5. 일상 점검
+## 5. Routine checks
 
-| 주기 | 항목 | 명령 |
+| Frequency | Item | Command |
 |---|---|---|
-| 매일 00:10 UTC 이후 | 결정 로그·주문·헤지율 오차 | `status` |
-| 매일 | 내부/거래소 일치 | `reconcile` |
-| 매주 | 펀딩 실측 vs 계산 비율(≈1) | DB `ledger_entries`, income |
-| 매주 | 계약 사양 변경·수수료율(`commissionRate`) | 시작 보고서 |
-| 매월 | 백테스트 재실행(신규 데이터) | `backtest` |
+| Daily, after 00:10 UTC | Decision log, orders, hedge ratio error | `status` |
+| Daily | Internal/exchange agreement | `reconcile` |
+| Weekly | Ratio of measured-live to computed funding (≈1) | DB `ledger_entries`, income |
+| Weekly | Contract spec changes, fee rate (`commissionRate`) | Startup report |
+| Monthly | Re-run the backtest (new data) | `backtest` |
 
-## 6. 수동 개입
+## 6. Manual intervention
 
 ```bash
-python -m btc_inventory_quant safe-hold --config configs/live.yaml                      # 즉시 SAFE_HOLD (미체결 취소, 포지션 유지)
+python -m btc_inventory_quant safe-hold --config configs/live.yaml                      # immediate SAFE_HOLD (cancel open orders, keep the position)
 python -m btc_inventory_quant safe-hold --config configs/live.yaml --release --ack I_ACCEPT_COIN_M_TRADING_RISK
 ```
-SAFE_HOLD 원인은 `status` 의 `safe_hold_reason` 과 `events` 테이블에서 확인한다. 해제 전 반드시 `reconcile` 이 OK 여야 한다.
+Check the cause of a SAFE_HOLD in `safe_hold_reason` from `status` and in the `events` table. Before releasing, `reconcile` must be OK.
 
 ## 7. Docker
 
 ```bash
-docker compose up -d shadow          # shadow 모드 상시 실행
-docker compose run --rm backtest     # 백테스트
+docker compose up -d shadow          # run shadow mode continuously
+docker compose run --rm backtest     # backtest
 ```
 
-## 8. 로그·비밀
+## 8. Logs and secrets
 
-* 로그는 JSON(`BIQ_LOG_JSON=true`), API 키·서명·listenKey 는 자동 마스킹.
-* `.env`, `configs/live.yaml`, `state/`, `*.sqlite3` 는 git 에 커밋되지 않는다.
+* Logs are JSON (`BIQ_LOG_JSON=true`); API keys, signatures and listenKeys are masked automatically.
+* `.env`, `configs/live.yaml`, `state/` and `*.sqlite3` are not committed to git.

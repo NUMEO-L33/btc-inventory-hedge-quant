@@ -76,7 +76,7 @@ def test_report_bundle_writes_every_required_file(tmp_path: Path) -> None:
     assert summary["main"]["strategy"] == "regime_hedge_v1"
     assert set(summary["benchmarks"]) == {"hodl", "fixed_hedge_50"}
     md = (tmp_path / "backtest_report.md").read_text(encoding="utf-8")
-    assert "HODL 대비" in md
+    assert "USD vs HODL" in md
     assert "fixed_hedge_50" in md
     comp = comparison_frame([main_run, *benches])
     assert list(comp["strategy"]) == ["regime_hedge_v1", "hodl", "fixed_hedge_50"]
