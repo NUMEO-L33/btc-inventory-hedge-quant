@@ -12,7 +12,7 @@ Research (backtests and statistical tests), the execution engine and unattended 
 | **Problem** | Holding BTC long term means carrying its full price risk. Over the backtest window (2021-03 → 2026-09), HODL's maximum USD drawdown was **−76.7%** |
 | **Method** | Use the BTC holding as margin and short BTCUSD_PERP for a fixed USD notional → USD exposure shrinks to (1 − hedge ratio)×, and the funding the short receives accrues in BTC |
 | **Research verdict** | Five research rounds (V1–V5), verdict criteria fixed before the results: **no timing edge**, no optimal static ratio, and the crash sample could not be extended. What remains is drawdown reduction and funding carry (about 1.1% a year at a 20% hedge) |
-| **Choice** | **A fixed 20% hedge** — not to maximise return, but because it depends least on the start date (best/worst final BTC 1.69×; 9.91× at an 85% hedge) |
+| **Choice** | **A fixed 20% hedge** — not to maximise return. Across all 14 start-date windows, 10–20% is the band where the final BTC count does not depend heavily on the start date (best/worst 1.26× at 10%, 1.69× at 20%; 9.91× at an 85% hedge), and 20% is the most insurance inside that band |
 | **Operation** | Running unattended as macOS daemons since 2026-09 — Shadow (a 1 BTC paper account on live prices and live funding) + Testnet (Binance demo account, real signed API) |
 | **Live results** | Paper, 09-11 → 11-12: while BTC moved **−4.3%**, the portfolio moved **−3.2%**; BTC holdings **+1.1%**; **+$826** vs HODL; maximum drawdown −12.1% (HODL −14.9%) |
 | **Limits** | With only 1–2 crashes in the sample, the expected value of the protection cannot be tested statistically. Live-account fees and fills are unverified. No profit is guaranteed |
@@ -47,7 +47,7 @@ The full-period results that make static hedging look better than HODL depend he
 | V4 | Random and block-shuffle control arms, 15 tests with Šidák correction (α = 0.00341) | **Zero** effects survive the correction. The Wilson 95% interval of every reported win rate contains 0.5 | [strategy_v4](docs/strategy_v4_control_arms.md) |
 | V5 | Extend the crash sample with USDT-M data | All three pre-registered gates **FAIL** → stopped without running the main analysis. The sample limit remains | [strategy_v5](docs/strategy_v5_sample_extension.md) |
 
-* **Correction (2026-09-11)**: V3's argument that "10–20% is the band that passes every robustness check" was **withdrawn** once it turned out that the PASS condition was a function of the single 2022 crash. 20% stays, but its rationale became the smallest outcome dispersion across all 14 start-date windows — V3 §10.
+* **Correction (2026-09-11)**: V3's argument that "10–20% is the band that passes every robustness check" was **withdrawn** once it turned out that the PASS condition was a function of the single 2022 crash. 20% stays, on a rationale that uses all 14 start-date windows instead: it is the top of the 10–20% band where the outcome does not depend heavily on the start date — V3 §10.
 * **Methodology**: 2,214 daily candles and 6,640 funding settlements (2020-08 → 2026-09, per-page SHA-256 manifest). Decisions use closed candles and fill at the **next candle's open** with slippage and taker fees (same-candle fills are forbidden by a test). 60/20/20 split, 7-fold walk-forward, 14 start-date windows — [docs/backtest_methodology.md](docs/backtest_methodology.md).
 
 ## 3. Live results (paper trading, as of 2026-11-12)
