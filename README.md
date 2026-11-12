@@ -11,7 +11,7 @@ Research (backtests and statistical tests), the execution engine and unattended 
 |---|---|
 | **Problem** | Holding BTC long term means carrying its full price risk. Over the backtest window (2021-03 → 2026-09), HODL's maximum USD drawdown was **−76.7%** |
 | **Method** | Use the BTC holding as margin and short BTCUSD_PERP for a fixed USD notional → USD exposure shrinks to (1 − hedge ratio)×, and the funding the short receives accrues in BTC |
-| **Research verdict** | All four pre-registered research rounds: **"no timing edge"**. No optimal static ratio either. What remains is drawdown reduction and funding carry (about 1.1% a year at a 20% hedge) |
+| **Research verdict** | Five research rounds (V1–V5), verdict criteria fixed before the results: **no timing edge**, no optimal static ratio, and the crash sample could not be extended. What remains is drawdown reduction and funding carry (about 1.1% a year at a 20% hedge) |
 | **Choice** | **A fixed 20% hedge** — not to maximise return, but because it depends least on the start date (best/worst final BTC 1.69×; 9.91× at an 85% hedge) |
 | **Operation** | Running unattended as macOS daemons since 2026-09 — Shadow (a 1 BTC paper account on live prices and live funding) + Testnet (Binance demo account, real signed API) |
 | **Live results** | Paper, 09-11 → 11-12: while BTC moved **−4.3%**, the portfolio moved **−3.2%**; BTC holdings **+1.1%**; **+$826** vs HODL; maximum drawdown −12.1% (HODL −14.9%) |
